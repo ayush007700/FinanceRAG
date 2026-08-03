@@ -1,0 +1,52 @@
+[
+  {
+    "doc_id": "sut-001",
+    "title": "Sales & Use Tax Consulting",
+    "source": "source-advisors-knowledge",
+    "service_line": "Sales & Use Tax",
+    "jurisdiction": "USA",
+    "doc_type": "knowledge",
+    "tags": ["SUT", "nexus", "exemptions"],
+    "text": "# Sales & Use Tax\n\nSource Advisors helps companies manage multi-state sales and use tax exposure, including nexus reviews, exemption certificate management, reverse audits, and refund opportunities. Post-Wayfair economic nexus rules require ongoing monitoring of sales thresholds by state. Deliverables commonly include exposure matrices, voluntary disclosure support, and process improvements for AP/AR tax determination."
+  },
+  {
+    "doc_id": "itc-ptc-001",
+    "title": "Investment & Production Tax Credits",
+    "source": "source-advisors-knowledge",
+    "service_line": "Investment Tax Credit",
+    "jurisdiction": "USA",
+    "doc_type": "knowledge",
+    "tags": ["ITC", "PTC", "IRA"],
+    "text": "# Investment & Production Tax Credits\n\nInvestment Tax Credits (ITC) and Production Tax Credits (PTC) support clean energy and other qualified investments. Source Advisors assists with credit qualification analysis, begin-construction documentation, prevailing wage / apprenticeship considerations where applicable, and transferability or direct-pay strategy coordination with counsel and CPA firms. Accurate cost segregation of energy property can also interact with credit basis."
+  },
+  {
+    "doc_id": "cpt-001",
+    "title": "Commercial Property Tax Consulting",
+    "source": "source-advisors-knowledge",
+    "service_line": "Commercial Property Tax",
+    "jurisdiction": "USA",
+    "doc_type": "knowledge",
+    "tags": ["property tax", "appeals"],
+    "text": "# Commercial Property Tax Consulting\n\nSource Advisors supports appeal strategies, assessment reviews, and valuation challenges for commercial real estate portfolios. Teams analyze assessed values versus market evidence, identify unequal assessments, and prepare protest packages aligned to local jurisdiction calendars. Reducing assessed value can create multi-year savings when millage rates are applied."
+  },
+  {
+    "doc_id": "lifo-001",
+    "title": "LIFO Inventory Solutions",
+    "source": "source-advisors-knowledge",
+    "service_line": "LIFO Inventory",
+    "jurisdiction": "USA",
+    "doc_type": "knowledge",
+    "tags": ["LIFO", "inventory", "IPIC"],
+    "text": "# LIFO Inventory Solutions\n\nLast-In, First-Out (LIFO) inventory methods can defer taxable income during inflationary periods. Source Advisors provides LIFO computation support, IPIC methodology assistance, layer history reconstruction, and compliance documentation. Changes to or from LIFO generally require careful accounting method change procedures and CPA coordination."
+  },
+  {
+    "doc_id": "uk-001",
+    "title": "UK Incentives Overview",
+    "source": "source-advisors-knowledge",
+    "service_line": "R&D Tax Credit",
+    "jurisdiction": "UK",
+    "doc_type": "knowledge",
+    "tags": ["HMRC", "UK", "R&D"],
+    "text": "# UK Practice Notes\n\nSource Advisors operates in the USA and UK. For UK clients, R&D incentive claims must follow HMRC guidance, including additional information form requirements and careful delineation of qualifying expenditure. Cross-border groups should align US IRC §41 analyses with UK R&D schemes without double-counting effort narratives. Trust and documentation quality remain essential under both regimes."
+  }
+]

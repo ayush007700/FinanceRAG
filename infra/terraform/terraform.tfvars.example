@@ -1,0 +1,20 @@
+aws_region   = "us-east-1"
+project_name = "source-advisors-finance-rag"
+
+# From Neo4j Aura console (Connection URI). Prefer neo4j+s:// ...
+neo4j_uri      = "neo4j+s://XXXXXXXX.databases.neo4j.io"
+neo4j_user     = "neo4j"
+neo4j_password = "YOUR_AURA_PASSWORD"
+neo4j_database = "neo4j"
+
+openai_api_key = "sk-..."
+
+# Leave empty on first apply (uses ECR :latest). CI will deploy real digests/tags.
+container_image = ""
+
+# e.g. "your-github-user/FinanceRAG" — enables OIDC deploy role
+github_org_repo = ""
+
+desired_count = 2
+min_capacity  = 1
+max_capacity  = 6

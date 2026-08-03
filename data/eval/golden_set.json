@@ -1,0 +1,27 @@
+[
+  {
+    "query": "What values guide Source Advisors client work?",
+    "relevant_doc_ids": ["company overview"],
+    "notes": "trust integrity hard work"
+  },
+  {
+    "query": "Explain the four-part test for R&D tax credit qualification",
+    "relevant_doc_ids": ["rd_tax_credit"],
+    "notes": "IRC 41"
+  },
+  {
+    "query": "How does cost segregation improve cash flow?",
+    "relevant_doc_ids": ["cost_segregation"],
+    "notes": "accelerated depreciation"
+  },
+  {
+    "query": "What is the difference between 179D and 45L?",
+    "relevant_doc_ids": ["energy_efficiency_179d_45l"],
+    "notes": "deduction vs credit"
+  },
+  {
+    "query": "How can Source Advisors help with LIFO inventory?",
+    "relevant_doc_ids": ["lifo-001"],
+    "notes": "IPIC computations"
+  }
+]
