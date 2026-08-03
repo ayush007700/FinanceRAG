@@ -12,7 +12,7 @@ openai_api_key = "sk-..."
 # Leave empty on first apply (uses ECR :latest). CI will deploy real digests/tags.
 container_image = ""
 
-# e.g. "your-github-user/FinanceRAG" — enables OIDC deploy role
+# e.g. "ayush007700/FinanceRAG" (owner/repo only — no https://)
 github_org_repo = ""
 
 desired_count = 2

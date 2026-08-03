@@ -75,6 +75,6 @@ variable "memory" {
 
 variable "github_org_repo" {
   type        = string
-  description = "GitHub repo allowed to assume deploy role via OIDC, format owner/repo"
+  description = "GitHub repo as owner/name (e.g. ayush007700/FinanceRAG). Do NOT include https://github.com/"
   default     = ""
 }

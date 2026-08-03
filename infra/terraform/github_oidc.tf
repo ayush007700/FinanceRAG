@@ -2,8 +2,19 @@
 
 data "aws_caller_identity" "current" {}
 
+locals {
+  # Accept either "owner/repo" or "https://github.com/owner/repo"
+  github_repo = trimspace(
+    trimsuffix(
+      replace(replace(var.github_org_repo, "https://github.com/", ""), "http://github.com/", ""),
+      ".git"
+    )
+  )
+  github_oidc_enabled = local.github_repo != "" && can(regex("^[^/]+/[^/]+$", local.github_repo))
+}
+
 resource "aws_iam_openid_connect_provider" "github" {
-  count = var.github_org_repo != "" ? 1 : 0
+  count = local.github_oidc_enabled ? 1 : 0
 
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
@@ -14,7 +25,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 
 resource "aws_iam_role" "github_actions" {
-  count = var.github_org_repo != "" ? 1 : 0
+  count = local.github_oidc_enabled ? 1 : 0
   name  = "${var.project_name}-github-actions"
 
   assume_role_policy = jsonencode({
@@ -24,13 +35,18 @@ resource "aws_iam_role" "github_actions" {
       Principal = {
         Federated = aws_iam_openid_connect_provider.github[0].arn
       }
-      Action = "sts:AssumeRoleWithWebIdentity"
+      # Include TagSession — required by newer configure-aws-credentials
+      Action = [
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:TagSession"
+      ]
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org_repo}:*"
+          # Must be owner/repo — NOT a https://github.com/... URL
+          "token.actions.githubusercontent.com:sub" = "repo:${local.github_repo}:*"
         }
       }
     }]
@@ -38,7 +54,7 @@ resource "aws_iam_role" "github_actions" {
 }
 
 resource "aws_iam_role_policy" "github_actions" {
-  count = var.github_org_repo != "" ? 1 : 0
+  count = local.github_oidc_enabled ? 1 : 0
   name  = "${var.project_name}-gha-deploy"
   role  = aws_iam_role.github_actions[0].id
 
@@ -73,8 +89,8 @@ resource "aws_iam_role_policy" "github_actions" {
         Resource = "*"
       },
       {
-        Effect   = "Allow"
-        Action   = ["iam:PassRole"]
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
         Resource = [
           aws_iam_role.ecs_task_execution.arn,
           aws_iam_role.ecs_task.arn
