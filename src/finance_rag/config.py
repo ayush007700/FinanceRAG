@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     )
     guardrail_min_relevance: float = Field(default=0.35, alias="GUARDRAIL_MIN_RELEVANCE")
 
-    aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
+    aws_region: str = Field(default="ap-south-1", alias="AWS_REGION")
     aws_cloudwatch_namespace: str = Field(
         default="FinanceRAG/SourceAdvisors", alias="AWS_CLOUDWATCH_NAMESPACE"
     )

@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
   ECR_REPOSITORY: finance-rag
   ECS_CLUSTER: ${{ vars.ECS_CLUSTER || 'source-advisors-finance-rag-cluster' }}
   ECS_SERVICE: ${{ vars.ECS_SERVICE || 'source-advisors-finance-rag-svc' }}

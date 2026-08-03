@@ -1,7 +1,7 @@
 variable "aws_region" {
   type        = string
   description = "AWS region for all resources"
-  default     = "us-east-1"
+  default     = "ap-south-1"
 }
 
 variable "project_name" {
@@ -12,7 +12,7 @@ variable "project_name" {
 
 variable "container_image" {
   type        = string
-  description = "ECR image URI including tag, e.g. 123.dkr.ecr.us-east-1.amazonaws.com/finance-rag:sha"
+  description = "ECR image URI including tag, e.g. 123.dkr.ecr.ap-south-1.amazonaws.com/finance-rag:sha"
   default     = ""
 }
 

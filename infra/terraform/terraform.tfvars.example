@@ -1,4 +1,4 @@
-aws_region   = "us-east-1"
+aws_region   = "ap-south-1"
 project_name = "source-advisors-finance-rag"
 
 # From Neo4j Aura console (Connection URI). Prefer neo4j+s:// ...

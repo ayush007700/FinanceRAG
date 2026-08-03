@@ -2,7 +2,7 @@
 # Manual fallback if you are not using GitHub Actions CD yet.
 set -euo pipefail
 
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-ap-south-1}"
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 REPO_NAME="${REPO_NAME:-finance-rag}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
