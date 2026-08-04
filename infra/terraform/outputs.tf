@@ -32,6 +32,17 @@ output "cloudwatch_dashboard" {
 }
 
 output "github_actions_role_arn" {
-  description = "Set this as GitHub secret AWS_ROLE_ARN when github_org_repo is set"
+  description = "OIDC role ARN (optional). Prefer access keys below if OIDC keeps failing."
   value       = try(aws_iam_role.github_actions[0].arn, null)
+}
+
+output "github_actions_access_key_id" {
+  description = "Put this in GitHub secret AWS_ACCESS_KEY_ID"
+  value       = aws_iam_access_key.github_actions.id
+}
+
+output "github_actions_secret_access_key" {
+  description = "Put this in GitHub secret AWS_SECRET_ACCESS_KEY"
+  value       = aws_iam_access_key.github_actions.secret
+  sensitive   = true
 }
