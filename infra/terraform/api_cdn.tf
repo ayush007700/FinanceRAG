@@ -32,7 +32,7 @@ resource "aws_cloudfront_distribution" "api" {
       origin_ssl_protocols   = ["TLSv1.2"]
       # Answers take seconds: routing, retrieval, generation and verification.
       # The default 30s would cut off legitimate responses.
-      origin_read_timeout    = 60
+      origin_read_timeout      = 60
       origin_keepalive_timeout = 60
     }
 

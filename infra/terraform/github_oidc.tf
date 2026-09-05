@@ -54,7 +54,16 @@ resource "aws_iam_user_policy" "github_actions" {
           "ecs:DescribeTasks",
           "ecs:ListTasks",
           "ecs:RegisterTaskDefinition",
-          "ecs:UpdateService"
+          "ecs:UpdateService",
+          # RunTask launches the one-shot migration task. Without it the deploy
+          # cannot apply migrations, which is the step that must precede it.
+          "ecs:RunTask",
+          "ecs:StopTask",
+          # The provider applies default_tags to every resource, so a re-
+          # registered task definition carries tags and registering it requires
+          # permission to tag. Omitting this fails RegisterTaskDefinition even
+          # though that action itself is allowed.
+          "ecs:TagResource"
         ]
         Resource = "*"
       },
@@ -143,7 +152,16 @@ resource "aws_iam_role_policy" "github_actions" {
           "ecs:DescribeTasks",
           "ecs:ListTasks",
           "ecs:RegisterTaskDefinition",
-          "ecs:UpdateService"
+          "ecs:UpdateService",
+          # RunTask launches the one-shot migration task. Without it the deploy
+          # cannot apply migrations, which is the step that must precede it.
+          "ecs:RunTask",
+          "ecs:StopTask",
+          # The provider applies default_tags to every resource, so a re-
+          # registered task definition carries tags and registering it requires
+          # permission to tag. Omitting this fails RegisterTaskDefinition even
+          # though that action itself is allowed.
+          "ecs:TagResource"
         ]
         Resource = "*"
       },
