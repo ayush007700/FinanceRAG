@@ -73,11 +73,21 @@ def test_labels_match_on_corpus_supplied_doc_id():
 
 
 def test_label_matching_is_case_and_path_insensitive():
-    assert run_eval._chunk_matches_label(
-        {"source": "D:\\\\Deeplearning\\\\data\\\\RD_Tax_Credit.MD"},
-        "x",
-        {"rd_tax_credit.md"},
-    )
+    """Regression: the path is produced by the indexing machine, not the eval one.
+
+    A corpus indexed on Windows stores backslash sources. Evaluated on Linux,
+    ``Path(...).name`` treats the whole string as one filename, so every label
+    match fails and the report shows total retrieval failure for a system that
+    is working correctly. CI runs on Linux, which is exactly where it bit.
+    """
+    for source in (
+        "D:\\Deeplearning\\data\\RD_Tax_Credit.MD",  # indexed on Windows
+        "/srv/data/corpus/rd_tax_credit.md",         # indexed on Linux
+        "data/corpus/RD_Tax_Credit.md",              # relative
+    ):
+        assert run_eval._chunk_matches_label(
+            {"source": source}, "x", {"rd_tax_credit.md"}
+        ), source
 
 
 def test_unrelated_document_does_not_match():

@@ -25,6 +25,13 @@ def _database_available() -> bool:
 
 requires_db = pytest.mark.skipif(not _database_available(), reason="Postgres not reachable")
 
+# CI runs a real database but deliberately no model credentials, so a test
+# needing embeddings must guard on both. Guarding only on the database made this
+# fail in CI while passing locally.
+requires_openai = pytest.mark.skipif(
+    not get_settings().openai_api_key, reason="OPENAI_API_KEY not set"
+)
+
 
 @pytest.fixture(autouse=True)
 def _reset():
@@ -130,6 +137,7 @@ def test_tenancy_can_be_disabled_for_single_tenant_deployments(monkeypatch):
 
 
 @requires_db
+@requires_openai
 def test_retrieval_is_isolated_between_tenants():
     """The corpus is indexed under 'default'; another org must see nothing."""
     from finance_rag.retrieval import HybridRetriever

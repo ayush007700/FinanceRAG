@@ -40,8 +40,17 @@ REGRESSION_TOLERANCE = 0.05
 
 
 def _source_key(value: str) -> str:
-    """Normalise a source to its comparable form (basename, lowercased)."""
-    return Path(str(value)).name.strip().lower()
+    """Normalise a source to its comparable form (basename, lowercased).
+
+    Backslashes are converted before taking the basename because the path was
+    produced by whichever machine indexed the corpus, not by the machine running
+    the evaluation. A corpus indexed on Windows stores
+    "data\\corpus\rd_tax_credit.md", and on Linux ``Path(...).name`` treats
+    that as a single filename and returns the whole string -- so every label
+    match fails and the report shows total retrieval failure for a system that
+    is working. CI runs on Linux, which is exactly where this bites.
+    """
+    return Path(str(value).replace("\\", "/")).name.strip().lower()
 
 
 def _chunk_matches_label(chunk_meta: dict, doc_id: str, labels: set[str]) -> bool:
