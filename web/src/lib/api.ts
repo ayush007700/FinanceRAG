@@ -35,7 +35,31 @@ export type HealthResponse = {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// The /v1 API requires a bearer credential. It deliberately does NOT come from
+// NEXT_PUBLIC_*: this is a static export, so anything in the environment is
+// inlined into a bundle any visitor can read, and a published key is not a key.
+// The operator supplies their own instead, which stays in this tab only.
+const API_KEY_STORAGE = "finance_rag_api_key";
+
+export function setApiKey(key: string): void {
+  sessionStorage.setItem(API_KEY_STORAGE, key);
+}
+
+function authHeaders(): Record<string, string> {
+  // Guarded for the server-rendering pass, where sessionStorage does not exist.
+  const key =
+    typeof window === "undefined"
+      ? null
+      : window.sessionStorage.getItem(API_KEY_STORAGE);
+  return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
 async function readError(res: Response): Promise<string> {
+  // 401 carries no useful server detail ("missing bearer credential"); 403 does
+  // -- it names the scope the key lacks -- so that one falls through below.
+  if (res.status === 401) {
+    return "Not authenticated: set an API key for this session.";
+  }
   try {
     const data = await res.json();
     if (typeof data?.detail === "string") return data.detail;
@@ -57,7 +81,7 @@ export async function askQuestion(
 ): Promise<AskResponse> {
   const res = await fetch(`${API_URL}/v1/ask`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({
       query,
       service_line: serviceLine || null,
@@ -70,7 +94,7 @@ export async function askQuestion(
 export async function indexCorpus(paths: string[] = ["data/corpus"]) {
   const res = await fetch(`${API_URL}/v1/index`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ paths }),
   });
   if (!res.ok) throw new Error(await readError(res));
@@ -82,6 +106,7 @@ export async function uploadFile(file: File) {
   form.append("file", file);
   const res = await fetch(`${API_URL}/v1/upload`, {
     method: "POST",
+    headers: authHeaders(),
     body: form,
   });
   if (!res.ok) throw new Error(await readError(res));

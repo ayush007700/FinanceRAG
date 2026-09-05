@@ -509,8 +509,20 @@ class MultiAgentRAG:
         # readable by role rather than as one opaque call.
         if handler := callback_handler():
             config["callbacks"] = [handler]
-        if thread_id and self.checkpointer is not None:
-            config["configurable"] = {"thread_id": thread_id}
+        if self.checkpointer is not None:
+            # A checkpointer demands a thread_id even from a caller who wants no
+            # continuity, so an absent one becomes a throwaway rather than a
+            # ValueError out of LangGraph. /v1/ask leaves thread_id optional and
+            # the API always attaches a checkpointer, which made every
+            # single-shot question a 500.
+            #
+            # The state below still carries the caller's thread_id unchanged: a
+            # synthetic id is how this request finds its own checkpoint, not a
+            # conversation anyone can resume, and the audit trail must not claim
+            # otherwise.
+            config["configurable"] = {
+                "thread_id": thread_id or f"oneshot-{uuid.uuid4()}"
+            }
 
         final = self.graph.invoke(
             {

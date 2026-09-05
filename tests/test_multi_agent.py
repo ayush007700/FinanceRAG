@@ -421,3 +421,68 @@ def test_refusal_names_the_sources_actually_searched():
     v.sources_consulted = "current web sources"
     assert "current web sources" in v.refusal_message
     assert "Source Advisors" not in v.refusal_message
+
+
+# ------------------------------------------------------- checkpointer config
+
+
+def _agent_with_checkpointer(recorder: dict):
+    """An orchestrator whose graph only records what it was invoked with.
+
+    Bypasses __init__ so the test costs no model calls and needs no database:
+    what is under test is the config assembled in `ask`, not the graph.
+    """
+    from finance_rag.config import get_settings
+
+    agent = _agent()
+    agent.settings = get_settings()
+    agent.checkpointer = object()  # any non-None checkpointer
+    agent._on_stage = None
+
+    class _Graph:
+        def invoke(self, state, config):
+            recorder["state"] = state
+            recorder["config"] = config
+            return {"answer": "ok", "confidence": 0.5}
+
+    agent.graph = _Graph()
+    return agent
+
+
+def test_ask_without_a_thread_id_still_supplies_one_to_the_checkpointer():
+    """LangGraph rejects a checkpointed run with no thread_id, and the API
+    leaves thread_id optional while always attaching a checkpointer -- so every
+    single-shot question through /v1/ask was a 500."""
+    recorder: dict = {}
+    _agent_with_checkpointer(recorder).ask("what is cost segregation")
+
+    assert recorder["config"]["configurable"]["thread_id"]
+
+
+def test_a_generated_thread_id_is_not_presented_as_a_conversation():
+    """The synthetic id is how the request finds its own checkpoint. Recording
+    it as the caller's thread would put a resumable-looking id nobody holds into
+    the audit trail."""
+    recorder: dict = {}
+    _agent_with_checkpointer(recorder).ask("what is cost segregation")
+
+    assert recorder["state"]["thread_id"] is None
+
+
+def test_a_supplied_thread_id_is_used_verbatim():
+    """Passing the same id across requests is what resumes a conversation."""
+    recorder: dict = {}
+    _agent_with_checkpointer(recorder).ask("and for 2023?", thread_id="thread-7")
+
+    assert recorder["config"]["configurable"]["thread_id"] == "thread-7"
+    assert recorder["state"]["thread_id"] == "thread-7"
+
+
+def test_each_single_shot_question_gets_its_own_thread():
+    """Sharing one generated id would leak conversation memory between
+    unrelated callers."""
+    a, b = {}, {}
+    _agent_with_checkpointer(a).ask("first question")
+    _agent_with_checkpointer(b).ask("second question")
+
+    assert a["config"]["configurable"]["thread_id"] != b["config"]["configurable"]["thread_id"]

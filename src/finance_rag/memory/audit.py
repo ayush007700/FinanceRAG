@@ -105,8 +105,30 @@ def write_audit(record: AuditRecord) -> int | None:
         return None
 
 
-def recent_audits(limit: int = 20, thread_id: str | None = None) -> list[dict[str, Any]]:
-    sql = """
+def recent_audits(
+    limit: int = 20,
+    thread_id: str | None = None,
+    org_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Recent interactions, newest first.
+
+    ``org_id`` scopes the read to one tenant and should be supplied by anything
+    serving a request: the rows hold the client's verbatim question. Rows
+    written before tenancy existed have a NULL org_id and are therefore
+    invisible to a scoped read, which is the safe direction to fail -- they
+    cannot be attributed to the caller.
+    """
+    conditions: list[str] = []
+    params: dict[str, Any] = {"limit": limit}
+    if thread_id:
+        conditions.append("thread_id = :thread_id")
+        params["thread_id"] = thread_id
+    if org_id:
+        conditions.append("org_id = :org_id")
+        params["org_id"] = org_id
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    sql = f"""
         SELECT audit_id, trace_id, thread_id, query, refused, route,
                critic_attempts, cardinality(cited_ids) AS n_cited,
                cardinality(hallucinated_ids) AS n_hallucinated,
@@ -115,9 +137,6 @@ def recent_audits(limit: int = 20, thread_id: str | None = None) -> list[dict[st
         {where}
         ORDER BY created_at DESC
         LIMIT :limit
-    """.format(where="WHERE thread_id = :thread_id" if thread_id else "")
-    params: dict[str, Any] = {"limit": limit}
-    if thread_id:
-        params["thread_id"] = thread_id
+    """
     with connection() as conn:
         return [dict(r) for r in conn.execute(text(sql), params).mappings()]

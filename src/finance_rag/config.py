@@ -100,6 +100,16 @@ class Settings(BaseSettings):
     default_org_id: str = Field(default="default", alias="DEFAULT_ORG_ID")
     enforce_tenancy: bool = Field(default=True, alias="ENFORCE_TENANCY")
 
+    # --- authentication ---------------------------------------------------
+    # Unset means "on everywhere except development": a deployment that forgets
+    # the flag gets the safe behaviour, and a local run stays frictionless.
+    # Setting it explicitly wins in both directions. See `auth_required`.
+    auth_enabled: bool | None = Field(default=None, alias="AUTH_ENABLED")
+    # Comma-separated "key_id:org_id:scopes:secret". Scopes are '|'-separated
+    # from ask/index/read, or '*' for all three. The org is a property of the
+    # key, not of a client-supplied header, which is what makes it trustworthy.
+    auth_api_keys: str = Field(default="", alias="AUTH_API_KEYS")
+
     # Effective dating. Off by default: a corpus without dates would retrieve
     # nothing if every document were treated as not-yet-effective.
     filter_by_effective_date: bool = Field(
@@ -202,6 +212,17 @@ class Settings(BaseSettings):
         "Commercial Property Tax, and LIFO inventory solutions."
     )
 
+
+    @property
+    def auth_required(self) -> bool:
+        """Whether /v1 demands a credential.
+
+        Derived rather than a plain default so that the failure mode of an
+        unset variable is a closed endpoint, not an open one.
+        """
+        if self.auth_enabled is not None:
+            return self.auth_enabled
+        return self.app_env.strip().lower() != "development"
 
     @field_validator("index_runner")
     @classmethod

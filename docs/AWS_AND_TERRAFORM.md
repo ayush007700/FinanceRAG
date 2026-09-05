@@ -177,11 +177,20 @@ bucket.
 **TLS**: `ELBSecurityPolicy-TLS13-1-2-2021-06` drops TLS 1.0/1.1, which fail
 most compliance baselines. HTTP 301-redirects once a certificate is configured.
 
+**Authentication**: `/v1` requires a bearer credential, supplied to the task as
+the `AUTH_API_KEYS` SecureString and never as a task-definition environment
+variable — those are readable by anyone holding `ecs:DescribeTaskDefinition`.
+Each key binds an org and a scope set, so the org is a property of the verified
+credential rather than of a client header. With `auth_enabled = true` and no keys
+configured the task **fails its lifespan and never becomes healthy**: an API that
+bills per call should crash-loop rather than serve traffic it cannot attribute.
+
 ### Known gaps
 
-- **No authentication yet.** The tenant is resolved from an `X-Org-Id` header —
-  a deliberate placeholder isolated in one function, so swapping it for a
-  verified JWT claim touches one place.
+- **The browser UI cannot hold a key** — the static export inlines
+  `NEXT_PUBLIC_*` into a public bundle. Machine clients are unaffected; a shared
+  UI deployment needs a key-entry control or an authenticating proxy.
+- **Key rotation is a redeploy.** One SSM parameter, read at task start.
 - **No WAF.** Worth adding before public exposure.
 - **CD does not run migrations** — see §6.
 

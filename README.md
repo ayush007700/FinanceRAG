@@ -47,14 +47,14 @@ produce than no answer**. Everything below follows from that.
 
 ### The six agents
 
-| role | model | job |
-|---|---|---|
-| **Supervisor** | cheap | classify intent, rewrite the query, route corpus / web / both |
-| **Researcher** | *none* | RRF retrieval — fusion is SQL, so no model call |
-| **WebSearch** | *none* | current external facts (Tavily, primary sources only) |
-| **Analyst** | full | grounded synthesis with inline `[chunk_id]` citations |
-| **Critic** | cheap | verify claims against passages; can send retrieval back |
-| **Compliance** | *none* | guardrails, PII, audit write |
+| role           | model  | job                                                           |
+| -------------- | ------ | ------------------------------------------------------------- |
+| **Supervisor** | cheap  | classify intent, rewrite the query, route corpus / web / both |
+| **Researcher** | _none_ | RRF retrieval — fusion is SQL, so no model call               |
+| **WebSearch**  | _none_ | current external facts (Tavily, primary sources only)         |
+| **Analyst**    | full   | grounded synthesis with inline `[chunk_id]` citations         |
+| **Critic**     | cheap  | verify claims against passages; can send retrieval back       |
+| **Compliance** | _none_ | guardrails, PII, audit write                                  |
 
 The **Critic → Researcher edge is a cycle**, which is what makes this a graph
 rather than a pipeline: a rejected draft returns for another retrieval, because
@@ -68,14 +68,14 @@ the rest.
 
 ### Memory — four tiers, one database
 
-| tier | scope | mechanism |
-|---|---|---|
-| working | one request | LangGraph `AgentState` |
-| short-term | one thread | `PostgresSaver` checkpointer, keyed by `thread_id` |
-| long-term | one org | `agent_memories` + pgvector, namespaced |
-| episodic / audit | forever | `query_audit`, append-only |
+| tier             | scope       | mechanism                                          |
+| ---------------- | ----------- | -------------------------------------------------- |
+| working          | one request | LangGraph `AgentState`                             |
+| short-term       | one thread  | `PostgresSaver` checkpointer, keyed by `thread_id` |
+| long-term        | one org     | `agent_memories` + pgvector, namespaced            |
+| episodic / audit | forever     | `query_audit`, append-only                         |
 
-The audit table is the compliance record *and* the source of real evaluation
+The audit table is the compliance record _and_ the source of real evaluation
 data. A hand-written golden set measures regressions; production traffic
 measures quality.
 
@@ -98,7 +98,7 @@ finance-rag ask "What is the four-part test for R&D tax credit qualification?"
 
 > **Postgres is published on host port `5434`, not 5432.** A native PostgreSQL
 > install commonly holds 5432, and when it does Docker can only bind the IPv6
-> side — connections then land on the wrong server and report a *password*
+> side — connections then land on the wrong server and report a _password_
 > failure that has nothing to do with the password. Connect with
 > `127.0.0.1:5434`, and use `127.0.0.1` rather than `localhost`, which resolves
 > to both stacks.
@@ -109,20 +109,56 @@ finance-rag ask "What is the four-part test for R&D tax credit qualification?"
 uvicorn finance_rag.api.app:app --reload --port 8000
 ```
 
-| endpoint | purpose |
-|---|---|
-| `POST /v1/ask` | answer a question (`thread_id` for multi-turn, `as_of` for dated) |
-| `POST /v1/ask/stream` | server-sent events: per-role progress, then the verified answer |
-| `POST /v1/ask/multipart` | question plus an image |
-| `POST /v1/index` | queue an indexing job → `202` + job id |
-| `POST /v1/upload` | store a document durably, then queue indexing → `202` |
-| `GET /v1/jobs/{id}` | job status |
-| `GET /v1/audit` | append-only interaction record |
-| `GET /v1/eval/runs` | evaluation run history |
-| `GET /health` · `GET /metrics` | health, Prometheus |
+| endpoint                       | scope   | purpose                                                           |
+| ------------------------------ | ------- | ----------------------------------------------------------------- |
+| `POST /v1/ask`                 | `ask`   | answer a question (`thread_id` for multi-turn, `as_of` for dated) |
+| `POST /v1/ask/stream`          | `ask`   | server-sent events: per-role progress, then the verified answer   |
+| `POST /v1/ask/multipart`       | `ask`   | question plus an image                                            |
+| `POST /v1/index`               | `index` | queue an indexing job → `202` + job id                            |
+| `POST /v1/upload`              | `index` | store a document durably, then queue indexing → `202`             |
+| `GET /v1/jobs/{id}`            | `read`  | job status                                                        |
+| `GET /v1/audit`                | `read`  | append-only interaction record, scoped to the caller's org        |
+| `GET /v1/eval/runs`            | `read`  | evaluation run history                                            |
+| `GET /health` · `GET /metrics` | —       | health, Prometheus                                                |
 
-Tenancy is resolved from an `X-Org-Id` header — a deliberate placeholder for
-real authentication, isolated in one function so the swap touches one place.
+### Authentication
+
+Every `/v1` route requires a bearer credential. `/v1/ask` spends model budget per
+call and `/v1/index` writes to the corpus, so neither may be reachable
+anonymously by anything that can resolve the load balancer.
+
+```bash
+curl -H "Authorization: Bearer $FINANCE_RAG_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"query":"What expenses qualify for the R&D credit?"}' \
+     http://localhost:8000/v1/ask
+```
+
+Keys are configured as `AUTH_API_KEYS`, comma-separated:
+
+```
+key_id:org_id:scopes:secret
+```
+
+Scopes are `|`-separated from `ask`, `index`, `read`, or `*` for all three; they
+split by consequence rather than by endpoint, so the eval harness can hold a key
+that spends model budget without one that can rewrite the corpus. **The org is a
+property of the key**, which is what makes tenancy trustworthy — with auth on,
+`X-Org-Id` is ignored, so a valid credential cannot name another tenant and read
+its corpus. `tenant()` remains the single function that resolves the org; it now
+reads a verified credential rather than a bare header.
+
+`AUTH_ENABLED` defaults to on everywhere except `APP_ENV=development`, so a
+deployment that forgets the flag gets the safe behaviour and local runs stay
+frictionless. A deployed task with auth on and no keys **refuses to start**
+rather than serving `/v1` openly; turning it off outside development takes an
+explicit `AUTH_ENABLED=false` and logs a warning.
+
+There is no identity provider in front of this service and every client is a
+machine, which is why these are static keys rather than an IdP's tokens.
+Swapping one in means replacing `authenticate()` in
+[`api/auth.py`](src/finance_rag/api/auth.py) with a verifier for that provider's
+token, reading the same org and scopes out of its claims. Nothing else changes.
 
 ---
 
@@ -148,7 +184,7 @@ similarity returned alongside the fused score.
 
 Measured on the golden set, answerable questions score cosine **0.591–0.799**
 and unanswerable ones **0.554–0.735**. The distributions overlap almost
-entirely, because cosine measures *topical similarity*, not whether a fact is
+entirely, because cosine measures _topical similarity_, not whether a fact is
 present. So a dedicated answerability gate runs between retrieval and
 generation — and refusing there also skips the expensive generation call.
 
@@ -166,21 +202,21 @@ python scripts/run_eval.py --diff 2 3      # compare two runs
 ```
 
 Every run persists to `eval_runs` / `eval_cases` with the git SHA and a snapshot
-of the settings that shaped it — *a metric without its configuration is a
-number, not a measurement*. `--diff` reports metric deltas, configuration
+of the settings that shaped it — _a metric without its configuration is a
+number, not a measurement_. `--diff` reports metric deltas, configuration
 changes, **and the individual cases that flipped**: an average that moved says
 go looking, a named case that changed says where.
 
-| | reported | why |
-|---|---|---|
+|                          | reported                                                                      | why                                       |
+| ------------------------ | ----------------------------------------------------------------------------- | ----------------------------------------- |
 | **Online** (per request) | latency, num_retrieved, top/mean/min cosine, rerank score, citation grounding | no relevance labels exist at request time |
-| **Offline** (golden set) | hit rate, MRR, nDCG, precision@k, recall@k, faithfulness, abstention accuracy | labels available |
+| **Offline** (golden set) | hit rate, MRR, nDCG, precision@k, recall@k, faithfulness, abstention accuracy | labels available                          |
 
 `hit_rate`, `mrr` and `ndcg` are **`None` online**. Deliberately: computing them
 from the retriever's own scores makes them constants, not measurements.
 
 The golden set is 39 cases across 8 service lines, **7 of them unanswerable** —
-those assert the system *refuses*, which no ranking metric can catch. Labels key
+those assert the system _refuses_, which no ranking metric can catch. Labels key
 on source basename or corpus `doc_id`, never generated `doc_id` (path hashes
 differ per machine).
 
@@ -192,10 +228,10 @@ pytest -q     # 224 tests; store integration tests skip without a database
 
 ## Observability
 
-| | where | use |
-|---|---|---|
-| **LangSmith** | SaaS | hosted convenience for development |
-| **Langfuse** | self-hosted, in-VPC | the one that can point at production |
+|               | where               | use                                  |
+| ------------- | ------------------- | ------------------------------------ |
+| **LangSmith** | SaaS                | hosted convenience for development   |
+| **Langfuse**  | self-hosted, in-VPC | the one that can point at production |
 
 Tax queries and retrieved passages leave the deployment with a SaaS tracer,
 which for this content needs sign-off. Langfuse runs beside the app instead,
@@ -270,12 +306,12 @@ cd web && npm install && npm run dev     # local, against API on :8000
 
 ## Documentation
 
-| | |
-|---|---|
-| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 26 war stories with real numbers |
-| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md) | Every service and why, the NAT cost trade, Terraform patterns, CI/CD bootstrap, UI hosting |
-| [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion |
-| [`docs/TERRAFORM_AND_CICD.md`](docs/TERRAFORM_AND_CICD.md) | ⚠️ **stale** — written for the removed Neo4j Aura deployment |
+|                                                              |                                                                                                           |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 26 war stories with real numbers |
+| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, Terraform patterns, CI/CD bootstrap, UI hosting                |
+| [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion                                                     |
+| [`docs/TERRAFORM_AND_CICD.md`](docs/TERRAFORM_AND_CICD.md)   | ⚠️ **stale** — written for the removed Neo4j Aura deployment                                              |
 
 ## Project layout
 
@@ -300,8 +336,16 @@ web/             Next.js UI
 
 ## Known gaps
 
-- **No authentication.** Tenancy resolves from a header; this must become a
-  verified token claim before any real exposure.
+- **The browser UI cannot hold a key.** The API is authenticated; the static
+  export that calls it is not, because `NEXT_PUBLIC_*` is inlined into a public
+  bundle — a key put there is a published key. The client sends whatever token
+  is in `sessionStorage` under `finance_rag_api_key`, so an operator can supply
+  their own, but a shared deployment needs either a key-entry control or an
+  authenticating proxy in front of the API. Machine clients (CI, the eval
+  harness) are unaffected.
+- **Key rotation is a redeploy.** Keys live in one SSM parameter read at task
+  start, so revoking one means updating the parameter and restarting the
+  service. Fine at this scale; a key table in Postgres is the move when it isn't.
 - **No WAF** in front of the ALB.
 - **CloudFront→ALB is HTTP.** Mitigated by two locks; register a domain and
   attach an ACM certificate for end-to-end TLS.

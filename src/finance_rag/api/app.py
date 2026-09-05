@@ -8,13 +8,20 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from finance_rag.agent import MultiAgentRAG
+from finance_rag.api.auth import (
+    Principal,
+    Scope,
+    require,
+    tenant,
+    verify_auth_configuration,
+)
 from finance_rag.config import get_settings
 from finance_rag.logging_setup import configure_logging, get_logger
 from finance_rag.monitoring import track_request
@@ -26,14 +33,24 @@ configure_langsmith()
 logger = get_logger(__name__)
 settings = get_settings()
 
+# `tenant` is re-exported: it moved to api.auth when it stopped reading a bare
+# header, and importers should not have to care which module holds it.
+__all__ = ["app", "tenant"]
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Reap jobs abandoned by a previous container before serving.
+    """Check the auth configuration, then reap jobs abandoned by a previous
+    container, before serving.
 
     A deploy or a kill leaves rows claiming to be running with nobody running
     them. Startup is exactly when the replacement container can say so, and a
     job table that lies about its own state is worse than no job table.
+
+    The auth check comes first and is allowed to raise: unlike the reap, a task
+    that cannot authenticate callers must not go on to serve them.
     """
+    verify_auth_configuration()
     try:
         from finance_rag.pipeline.jobs import reap_stale_jobs
 
@@ -153,28 +170,18 @@ def health() -> dict[str, Any]:
     }
 
 
-def tenant(x_org_id: str | None = Header(default=None)) -> str:
-    """Resolve the calling tenant.
-
-    A header is the placeholder for real authentication: when auth lands this
-    becomes a claim from the verified token. It is isolated here so that swap
-    touches one function rather than every endpoint.
-    """
-    settings_ = get_settings()
-    if not settings_.enforce_tenancy:
-        return settings_.default_org_id
-    return (x_org_id or settings_.default_org_id).strip() or settings_.default_org_id
-
-
 @app.post("/v1/ask", response_model=AskResponse)
-async def ask(payload: AskRequest, org_id: str = Depends(tenant)) -> AskResponse:
+async def ask(
+    payload: AskRequest,
+    principal: Principal = Depends(require(Scope.ASK)),
+) -> AskResponse:
     """Answer one question.
 
     The agent is synchronous and makes several blocking network calls, so it
     runs in a worker thread. Awaiting it directly on the event loop would stall
     every other in-flight request for the duration.
     """
-    return await run_in_threadpool(_ask_sync, payload, org_id)
+    return await run_in_threadpool(_ask_sync, payload, principal.org_id)
 
 
 def _ask_sync(payload: AskRequest, org_id: str) -> AskResponse:
@@ -221,7 +228,7 @@ async def ask_multipart(
     query: str = Form(...),
     service_line: str | None = Form(None),
     image: UploadFile | None = File(None),
-    org_id: str = Depends(tenant),
+    principal: Principal = Depends(require(Scope.ASK)),
 ) -> AskResponse:
     image_bytes = await image.read() if image is not None else None
     mime = image.content_type if image and image.content_type else "image/png"
@@ -233,14 +240,14 @@ async def ask_multipart(
     )
     # Same threadpool hop as /v1/ask: the agent blocks, and this endpoint is a
     # coroutine, so calling it directly would stall the event loop.
-    return await run_in_threadpool(_ask_sync, payload, org_id)
+    return await run_in_threadpool(_ask_sync, payload, principal.org_id)
 
 
 @app.post("/v1/index", status_code=202)
 def index(
     payload: IndexRequest,
     background: BackgroundTasks,
-    org_id: str = Depends(tenant),
+    principal: Principal = Depends(require(Scope.INDEX)),
 ) -> dict[str, Any]:
     """Queue an indexing job.
 
@@ -250,7 +257,7 @@ def index(
     """
     from finance_rag.pipeline.launcher import dispatch_index_job
 
-    d = dispatch_index_job(payload.paths, org_id=org_id)
+    d = dispatch_index_job(payload.paths, org_id=principal.org_id)
     if d.error:
         raise HTTPException(status_code=503, detail=d.error)
     return {
@@ -263,30 +270,36 @@ def index(
 
 
 @app.get("/v1/jobs/{job_id}")
-def job_status(job_id: int, org_id: str = Depends(tenant)) -> dict[str, Any]:
+def job_status(
+    job_id: int,
+    principal: Principal = Depends(require(Scope.READ)),
+) -> dict[str, Any]:
     from finance_rag.pipeline.jobs import get_job
 
     job = get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     # 404 rather than 403: a job id must not confirm another tenant's work exists.
-    if get_settings().enforce_tenancy and job.get("org_id") != org_id:
+    if get_settings().enforce_tenancy and job.get("org_id") != principal.org_id:
         raise HTTPException(status_code=404, detail="job not found")
     return job
 
 
 @app.get("/v1/jobs")
-def jobs(limit: int = 20, org_id: str = Depends(tenant)) -> dict[str, Any]:
+def jobs(
+    limit: int = 20,
+    principal: Principal = Depends(require(Scope.READ)),
+) -> dict[str, Any]:
     from finance_rag.pipeline.jobs import list_jobs
 
-    return {"jobs": list_jobs(limit=min(limit, 100), org_id=org_id)}
+    return {"jobs": list_jobs(limit=min(limit, 100), org_id=principal.org_id)}
 
 
 @app.post("/v1/upload", status_code=202)
 async def upload(
     background: BackgroundTasks,
     file: UploadFile = File(...),
-    org_id: str = Depends(tenant),
+    principal: Principal = Depends(require(Scope.INDEX)),
 ) -> dict[str, Any]:
     """Store an uploaded document durably, then queue indexing.
 
@@ -303,12 +316,12 @@ async def upload(
         raise HTTPException(status_code=400, detail="empty upload")
 
     store = build_object_store()
-    key = content_key(org_id, file.filename or "upload.bin", content)
+    key = content_key(principal.org_id, file.filename or "upload.bin", content)
     stored = await run_in_threadpool(store.put, key, content)
 
     # The object key is the path: the indexing task stages it from storage,
     # which is why the upload had to become durable before this could work.
-    d = await run_in_threadpool(dispatch_index_job, [stored.key], org_id)
+    d = await run_in_threadpool(dispatch_index_job, [stored.key], principal.org_id)
     if d.error:
         raise HTTPException(status_code=503, detail=d.error)
     return {
@@ -329,7 +342,10 @@ def _sse(event: dict[str, Any]) -> str:
 
 
 @app.post("/v1/ask/stream")
-async def ask_stream(payload: AskRequest, org_id: str = Depends(tenant)):
+async def ask_stream(
+    payload: AskRequest,
+    principal: Principal = Depends(require(Scope.ASK)),
+):
     """Answer with server-sent events.
 
     The agent is not token-streaming: it routes, retrieves, verifies and only
@@ -358,7 +374,7 @@ async def ask_stream(payload: AskRequest, org_id: str = Depends(tenant)):
                     payload.query,
                     thread_id=payload.thread_id,
                     service_line=payload.service_line,
-                    org_id=org_id,
+                    org_id=principal.org_id,
                     as_of=payload.as_of,
                     on_stage=emit,
                 )
@@ -402,16 +418,39 @@ async def ask_stream(payload: AskRequest, org_id: str = Depends(tenant)):
 
 
 @app.get("/v1/audit")
-def audit(limit: int = 20, thread_id: str | None = None) -> dict[str, Any]:
-    """Recent interactions from the append-only audit trail."""
+def audit(
+    limit: int = 20,
+    thread_id: str | None = None,
+    principal: Principal = Depends(require(Scope.READ)),
+) -> dict[str, Any]:
+    """Recent interactions from the append-only audit trail.
+
+    Scoped to the caller's org. The trail stores the verbatim client question,
+    so an unscoped read is a confidentiality breach rather than merely untidy --
+    this endpoint previously had no tenancy check at all.
+    """
     from finance_rag.memory import recent_audits
 
-    return {"records": recent_audits(limit=min(limit, 200), thread_id=thread_id)}
+    return {
+        "records": recent_audits(
+            limit=min(limit, 200),
+            thread_id=thread_id,
+            org_id=principal.org_id if get_settings().enforce_tenancy else None,
+        )
+    }
 
 
 @app.get("/v1/eval/runs")
-def eval_runs(limit: int = 20) -> dict[str, Any]:
-    """Evaluation run history: which config produced which numbers."""
+def eval_runs(
+    limit: int = 20,
+    _: Principal = Depends(require(Scope.READ)),
+) -> dict[str, Any]:
+    """Evaluation run history: which config produced which numbers.
+
+    Not per-tenant: eval runs measure the deployment against the golden set, so
+    there is no org to scope to. The scope check is what keeps the configuration
+    snapshot in each row from being public.
+    """
     from finance_rag.evaluation import list_runs
 
     return {"runs": list_runs(limit=min(limit, 100))}
