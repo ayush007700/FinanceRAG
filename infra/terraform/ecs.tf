@@ -114,6 +114,15 @@ resource "aws_ecs_task_definition" "api" {
         { name = "OPENAI_EMBEDDING_DIMENSIONS", value = "1536" },
         { name = "S3_BUCKET", value = aws_s3_bucket.uploads.bucket },
         { name = "ENFORCE_TENANCY", value = "true" },
+        # Indexing is dispatched to its own task; running it in this container
+        # exceeds the memory limit and dies with exit 137.
+        { name = "INDEX_RUNNER", value = "ecs" },
+        { name = "ECS_CLUSTER", value = aws_ecs_cluster.this.name },
+        { name = "INDEX_TASK_DEFINITION", value = aws_ecs_task_definition.index.family },
+        { name = "INDEX_TASK_CONTAINER", value = "index" },
+        { name = "INDEX_TASK_SUBNETS", value = join(",", var.enable_nat_gateway ? aws_subnet.private[*].id : aws_subnet.public[*].id) },
+        { name = "INDEX_TASK_SECURITY_GROUPS", value = aws_security_group.ecs.id },
+        { name = "INDEX_TASK_ASSIGN_PUBLIC_IP", value = var.enable_nat_gateway ? "false" : "true" },
         # Pinned to the CloudFront origin. A wildcard here would be rejected
         # by browsers as soon as credentials are involved.
         { name = "CORS_ORIGINS", value = "https://${aws_cloudfront_distribution.ui.domain_name}" },

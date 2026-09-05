@@ -103,9 +103,18 @@ def run_job(job_id: int) -> None:
             entity_links=int(stats.get("entity_links") or 0),
         )
         logger.info("index_job_succeeded", job_id=job_id, **stats)
-    except Exception as exc:
-        _mark(job_id, "failed", error=str(exc)[:2000])
+    except BaseException as exc:
+        # BaseException, not Exception. A cancelled task raises
+        # asyncio.CancelledError and a killed worker raises SystemExit -- both
+        # derive from BaseException, so catching Exception let the row stay at
+        # "running" forever while claiming work was in progress. A job table
+        # that lies about its own state is worse than no job table.
+        _mark(job_id, "failed", error=f"{type(exc).__name__}: {exc}"[:2000])
         logger.exception("index_job_failed", job_id=job_id, error=str(exc))
+        # Re-raise anything that is not a normal error so the process still
+        # exits when it is being shut down.
+        if not isinstance(exc, Exception):
+            raise
 
 
 def get_job(job_id: int) -> dict[str, Any] | None:

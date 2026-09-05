@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date
 from typing import Any
@@ -25,7 +26,28 @@ configure_langsmith()
 logger = get_logger(__name__)
 settings = get_settings()
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Reap jobs abandoned by a previous container before serving.
+
+    A deploy or a kill leaves rows claiming to be running with nobody running
+    them. Startup is exactly when the replacement container can say so, and a
+    job table that lies about its own state is worse than no job table.
+    """
+    try:
+        from finance_rag.pipeline.jobs import reap_stale_jobs
+
+        reaped = await run_in_threadpool(reap_stale_jobs, settings.stale_job_minutes)
+        if reaped:
+            logger.warning("stale_jobs_reaped_on_startup", count=reaped)
+    except Exception as exc:  # noqa: BLE001
+        # Never block startup on housekeeping.
+        logger.warning("startup_reap_failed", error=str(exc))
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Source Advisors FinanceRAG",
     description="LangGraph multimodal RAG over Postgres/pgvector with RRF hybrid retrieval, Redis semantic cache and LangSmith tracing",
     version="2.0.0",
@@ -226,11 +248,18 @@ def index(
     pipeline outlives any sane request timeout, and a client that gives up has
     no way to learn whether the work finished or how it failed.
     """
-    from finance_rag.pipeline.jobs import create_job, run_job
+    from finance_rag.pipeline.launcher import dispatch_index_job
 
-    job_id = create_job(payload.paths, org_id=org_id)
-    background.add_task(run_job, job_id)
-    return {"status": "queued", "job_id": job_id, "poll": f"/v1/jobs/{job_id}"}
+    d = dispatch_index_job(payload.paths, org_id=org_id)
+    if d.error:
+        raise HTTPException(status_code=503, detail=d.error)
+    return {
+        "status": "queued",
+        "job_id": d.job_id,
+        "runner": d.runner,
+        "task_arn": d.task_arn,
+        "poll": f"/v1/jobs/{d.job_id}",
+    }
 
 
 @app.get("/v1/jobs/{job_id}")
@@ -266,7 +295,7 @@ async def upload(
     every other task, so retrieval succeeded only intermittently -- which is
     worse than failing outright, because it looks like a ranking problem.
     """
-    from finance_rag.pipeline.jobs import create_job
+    from finance_rag.pipeline.launcher import dispatch_index_job
     from finance_rag.storage import build_object_store, content_key
 
     content = await file.read()
@@ -277,39 +306,19 @@ async def upload(
     key = content_key(org_id, file.filename or "upload.bin", content)
     stored = await run_in_threadpool(store.put, key, content)
 
-    job_id = create_job([stored.key], org_id=org_id, source_uri=stored.uri)
-    background.add_task(_index_stored_object, job_id, stored.key)
+    # The object key is the path: the indexing task stages it from storage,
+    # which is why the upload had to become durable before this could work.
+    d = await run_in_threadpool(dispatch_index_job, [stored.key], org_id)
+    if d.error:
+        raise HTTPException(status_code=503, detail=d.error)
     return {
         "status": "queued",
-        "job_id": job_id,
+        "job_id": d.job_id,
+        "runner": d.runner,
         "uri": stored.uri,
         "checksum": stored.checksum,
-        "poll": f"/v1/jobs/{job_id}",
+        "poll": f"/v1/jobs/{d.job_id}",
     }
-
-
-def _index_stored_object(job_id: int, key: str) -> None:
-    """Stage the stored object locally, then index it under the job.
-
-    The parsers need a real filesystem path, so a remote object is materialised
-    into a temporary directory that is removed once indexing completes.
-    """
-    import tempfile
-    from pathlib import Path
-
-    from sqlalchemy import text
-
-    from finance_rag.db import connection
-    from finance_rag.pipeline.jobs import resolve_upload_paths, run_job
-
-    with tempfile.TemporaryDirectory(prefix="finrag-ingest-") as tmp:
-        paths = resolve_upload_paths([key], Path(tmp))
-        with connection() as conn:
-            conn.execute(
-                text("UPDATE index_jobs SET paths = :paths WHERE job_id = :id"),
-                {"paths": paths, "id": job_id},
-            )
-        run_job(job_id)
 
 
 def _sse(event: dict[str, Any]) -> str:

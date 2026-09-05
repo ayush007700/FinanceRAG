@@ -70,6 +70,23 @@ class Settings(BaseSettings):
     media_dir: str = Field(default="data/media", alias="MEDIA_DIR")
     max_images_per_doc: int = Field(default=20, alias="MAX_IMAGES_PER_DOC")
 
+    # --- indexing execution -----------------------------------------------
+    # "ecs" runs indexing as its own task; "inline" runs it in-process, which is
+    # only viable in development. The API service is sized for IO-bound request
+    # serving (0.5 vCPU / 1 GiB) and cannot parse a large PDF corpus without
+    # being OOM-killed, so inline is not a production option.
+    index_runner: str = Field(default="inline", alias="INDEX_RUNNER")
+    ecs_cluster: str = Field(default="", alias="ECS_CLUSTER")
+    index_task_definition: str = Field(default="", alias="INDEX_TASK_DEFINITION")
+    index_task_container: str = Field(default="index", alias="INDEX_TASK_CONTAINER")
+    index_task_subnets: str = Field(default="", alias="INDEX_TASK_SUBNETS")
+    index_task_security_groups: str = Field(default="", alias="INDEX_TASK_SECURITY_GROUPS")
+    index_task_assign_public_ip: bool = Field(
+        default=True, alias="INDEX_TASK_ASSIGN_PUBLIC_IP"
+    )
+    # Jobs still "running" past this are treated as abandoned by a killed worker.
+    stale_job_minutes: int = Field(default=60, alias="STALE_JOB_MINUTES")
+
     # --- storage & tenancy -----------------------------------------------
     # Uploads must outlive a task. Without a bucket they land on the container
     # filesystem, which on Fargate disappears on redeploy and is invisible to
@@ -185,6 +202,15 @@ class Settings(BaseSettings):
         "Commercial Property Tax, and LIFO inventory solutions."
     )
 
+
+    @field_validator("index_runner")
+    @classmethod
+    def _validate_index_runner(cls, value: str) -> str:
+        allowed = {"ecs", "inline"}
+        normalised = value.strip().lower()
+        if normalised not in allowed:
+            raise ValueError(f"INDEX_RUNNER must be one of {sorted(allowed)}, got {value!r}")
+        return normalised
 
     @field_validator("rerank_provider")
     @classmethod

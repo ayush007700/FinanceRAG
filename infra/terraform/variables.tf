@@ -134,6 +134,22 @@ variable "s3_force_destroy" {
   default     = false
 }
 
+variable "index_task_cpu" {
+  type        = number
+  description = "Fargate CPU for the indexing task. Parsing is CPU-bound, unlike request serving."
+  default     = 2048
+}
+
+variable "index_task_memory" {
+  type        = number
+  description = <<-EOT
+    Fargate memory (MiB) for the indexing task. pdfplumber holds the full page
+    model for a large publication; this corpus was OOM-killed at 1024 and
+    completed at 8192.
+  EOT
+  default     = 8192
+}
+
 variable "desired_count" {
   type        = number
   description = "Starting number of ECS tasks. Autoscaling raises this under load."
