@@ -6,13 +6,25 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
-  # Optional later: store state in S3 instead of local disk
+  # State lives on one laptop until this is enabled. That means no locking, no
+  # history, and a stack that only one person can safely change. Create the
+  # bucket once (versioned, encrypted, public access blocked), then uncomment.
+  #
+  # S3 native locking (use_lockfile) replaces the old DynamoDB table, so there
+  # is no second resource to provision.
+  #
   # backend "s3" {
-  #   bucket = "your-tf-state-bucket"
-  #   key    = "finance-rag/terraform.tfstate"
-  #   region = "ap-south-1"
+  #   bucket       = "source-advisors-finance-rag-tfstate"
+  #   key          = "finance-rag/terraform.tfstate"
+  #   region       = "ap-south-1"
+  #   encrypt      = true
+  #   use_lockfile = true
   # }
 }
 

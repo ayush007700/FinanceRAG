@@ -11,7 +11,6 @@ import tiktoken
 from finance_rag.config import get_settings
 from finance_rag.models import Chunk, DocumentMeta
 
-
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 SECTION_SPLIT_RE = re.compile(r"\n(?=#{1,6}\s)")
 
@@ -45,6 +44,38 @@ def split_by_structure(text: str) -> list[tuple[str | None, str]]:
         else:
             sections.append((None, part))
     return sections or [(None, text.strip())]
+
+
+_TABLE_LINE = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def split_off_tables(text: str) -> list[tuple[bool, str]]:
+    """Split text into ``(is_table, segment)`` runs.
+
+    Markdown tables must survive chunking intact. Splitting one mid-way strands
+    the rows in a chunk with no header, which is worse than dropping the table:
+    the numbers stay readable while the column they belong to disappears, so a
+    depreciation rate can be attributed to the wrong recovery period.
+    """
+    segments: list[tuple[bool, str]] = []
+    buffer: list[str] = []
+    in_table = False
+
+    def flush() -> None:
+        if buffer:
+            body = "\n".join(buffer).strip()
+            if body:
+                segments.append((in_table, body))
+            buffer.clear()
+
+    for line in text.splitlines():
+        is_table_line = bool(_TABLE_LINE.match(line))
+        if is_table_line != in_table:
+            flush()
+            in_table = is_table_line
+        buffer.append(line)
+    flush()
+    return segments
 
 
 def recursive_token_split(text: str, chunk_size: int, overlap: int) -> list[str]:
@@ -112,28 +143,41 @@ def chunk_document(text: str, meta: DocumentMeta) -> list[Chunk]:
             chunks.append(parent_chunk)
             index += 1
 
-        child_texts = recursive_token_split(
-            body, chunk_size=settings.chunk_size, overlap=settings.chunk_overlap
-        )
         # Always emit child chunks for vector/fulltext retrieval (parents are context-only).
-        for child in child_texts:
-            child_chunk = Chunk(
-                chunk_id=_chunk_id(meta.doc_id, index, child),
-                doc_id=meta.doc_id,
-                text=child,
-                index=index,
-                tokens=count_tokens(child),
-                section=section_title,
-                parent_id=parent_id,
-                metadata={
-                    **asdict(meta),
-                    "level": "child",
-                    "service_line": meta.service_line,
-                    "jurisdiction": meta.jurisdiction,
-                },
-            )
-            chunks.append(child_chunk)
-            index += 1
+        for is_table, segment in split_off_tables(body):
+            if is_table:
+                # Emitted whole even when oversized: a partial table is
+                # actively misleading, whereas a long one is merely expensive.
+                child_texts: list[tuple[str, str]] = [(segment, "table")]
+            else:
+                child_texts = [
+                    (piece, "text")
+                    for piece in recursive_token_split(
+                        segment,
+                        chunk_size=settings.chunk_size,
+                        overlap=settings.chunk_overlap,
+                    )
+                ]
+
+            for child, modality in child_texts:
+                child_chunk = Chunk(
+                    chunk_id=_chunk_id(meta.doc_id, index, child),
+                    doc_id=meta.doc_id,
+                    text=child,
+                    index=index,
+                    tokens=count_tokens(child),
+                    section=section_title,
+                    parent_id=parent_id,
+                    metadata={
+                        **asdict(meta),
+                        "level": "child",
+                        "modality": modality,
+                        "service_line": meta.service_line,
+                        "jurisdiction": meta.jurisdiction,
+                    },
+                )
+                chunks.append(child_chunk)
+                index += 1
 
     return chunks
 

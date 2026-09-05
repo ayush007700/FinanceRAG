@@ -28,3 +28,5 @@ infra/terraform/*.tfvars
 !infra/terraform/*.tfvars.example
 infra/cdk.out/
 *.pem
+data/media/
+ask.json

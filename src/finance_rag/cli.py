@@ -15,7 +15,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="finance-rag")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    index_p = sub.add_parser("index", help="Ingest and index corpus into Neo4j")
+    index_p = sub.add_parser("index", help="Ingest and index corpus into Postgres")
     index_p.add_argument("paths", nargs="+", help="Files or directories to index")
 
     ask_p = sub.add_parser("ask", help="Ask a question against the indexed corpus")

@@ -1,27 +1,355 @@
-[
-  {
-    "query": "What values guide Source Advisors client work?",
-    "relevant_doc_ids": ["company overview"],
-    "notes": "trust integrity hard work"
-  },
-  {
-    "query": "Explain the four-part test for R&D tax credit qualification",
-    "relevant_doc_ids": ["rd_tax_credit"],
-    "notes": "IRC 41"
-  },
-  {
-    "query": "How does cost segregation improve cash flow?",
-    "relevant_doc_ids": ["cost_segregation"],
-    "notes": "accelerated depreciation"
-  },
-  {
-    "query": "What is the difference between 179D and 45L?",
-    "relevant_doc_ids": ["energy_efficiency_179d_45l"],
-    "notes": "deduction vs credit"
-  },
-  {
-    "query": "How can Source Advisors help with LIFO inventory?",
-    "relevant_doc_ids": ["lifo-001"],
-    "notes": "IPIC computations"
-  }
-]
+{
+  "schema_version": 2,
+  "notes": [
+    "relevant_sources matches a document's source basename (rd_tax_credit.md) or",
+    "its corpus-supplied doc_id (lifo-001). It deliberately does NOT use the",
+    "generated doc_id for file-backed documents: those are hashes of the absolute",
+    "path, so they differ between machines and checkouts and cannot be labelled.",
+    "",
+    "expect_refusal marks questions the corpus cannot answer. A system that",
+    "answers them anyway is hallucinating, which no ranking metric would catch.",
+    "",
+    "Every question below is answerable from the indexed corpus text as written.",
+    "Grow this set from real production queries once the audit log exists; a",
+    "hand-written set this size measures regressions, not absolute quality."
+  ],
+  "cases": [
+    {
+      "id": "rd-001",
+      "query": "What is the four-part test for R&D tax credit qualification?",
+      "relevant_sources": [
+        "rd_tax_credit.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "IRC 41: permitted purpose, technological in nature, elimination of uncertainty, process of experimentation"
+    },
+    {
+      "id": "rd-002",
+      "query": "Which code section governs qualified research activities?",
+      "relevant_sources": [
+        "rd_tax_credit.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "IRC 41"
+    },
+    {
+      "id": "rd-003",
+      "query": "What categories of expenses count as Qualified Research Expenses?",
+      "relevant_sources": [
+        "rd_tax_credit.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "wages, supplies, contract research, certain cloud computing"
+    },
+    {
+      "id": "rd-004",
+      "query": "Are contract research expenses subject to any limitation?",
+      "relevant_sources": [
+        "rd_tax_credit.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "typically subject to statutory percentage limitations"
+    },
+    {
+      "id": "rd-005",
+      "query": "When can cloud computing costs be included in an R&D credit claim?",
+      "relevant_sources": [
+        "rd_tax_credit.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "qualified software development experimentation, facts and circumstances"
+    },
+    {
+      "id": "rd-006",
+      "query": "What documentation reduces exam risk on an R&D credit study?",
+      "relevant_sources": [
+        "rd_tax_credit.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "project narratives, time tracking, org charts, technical interviews"
+    },
+    {
+      "id": "rd-007",
+      "query": "Does the elimination of uncertainty requirement apply at the start of a project?",
+      "relevant_sources": [
+        "rd_tax_credit.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "technical uncertainty existed at the outset"
+    },
+    {
+      "id": "rd-008",
+      "query": "How does Source Advisors work with CPA firms on R&D engagements?",
+      "relevant_sources": [
+        "rd_tax_credit.md",
+        "company_overview.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "notes": "specialized technical resource; firm keeps the client relationship"
+    },
+    {
+      "id": "cs-001",
+      "query": "How does cost segregation improve cash flow?",
+      "relevant_sources": [
+        "cost_segregation.md"
+      ],
+      "service_line": "Cost Segregation",
+      "notes": "accelerated depreciation via shorter-lived asset classes"
+    },
+    {
+      "id": "cs-002",
+      "query": "What asset lives does a cost segregation study reclassify building components into?",
+      "relevant_sources": [
+        "cost_segregation.md"
+      ],
+      "service_line": "Cost Segregation",
+      "notes": "5-, 7-, 15-year vs default 27.5- or 39-year"
+    },
+    {
+      "id": "cs-003",
+      "query": "What documents are reviewed during a cost segregation study?",
+      "relevant_sources": [
+        "cost_segregation.md"
+      ],
+      "service_line": "Cost Segregation",
+      "notes": "architectural drawings, contractor pay applications, fixed asset ledgers"
+    },
+    {
+      "id": "cs-004",
+      "query": "Which properties are good candidates for cost segregation?",
+      "relevant_sources": [
+        "cost_segregation.md"
+      ],
+      "service_line": "Cost Segregation",
+      "notes": "new construction, acquisitions, renovations, look-back studies"
+    },
+    {
+      "id": "cs-005",
+      "query": "When is Form 3115 relevant to a cost segregation engagement?",
+      "relevant_sources": [
+        "cost_segregation.md"
+      ],
+      "service_line": "Cost Segregation",
+      "notes": "accounting method change implications"
+    },
+    {
+      "id": "cs-006",
+      "query": "Is a site inspection always required for a cost segregation study?",
+      "relevant_sources": [
+        "cost_segregation.md"
+      ],
+      "service_line": "Cost Segregation",
+      "notes": "site inspections when appropriate"
+    },
+    {
+      "id": "ee-001",
+      "query": "What is the difference between the 179D deduction and the 45L credit?",
+      "relevant_sources": [
+        "energy_efficiency_179d_45l.md"
+      ],
+      "service_line": "Energy Efficiency \u00a7179D",
+      "notes": "179D is a deduction for commercial buildings; 45L is a credit for homes"
+    },
+    {
+      "id": "ee-002",
+      "query": "Who can receive a 179D allocation for a government-owned building?",
+      "relevant_sources": [
+        "energy_efficiency_179d_45l.md"
+      ],
+      "service_line": "Energy Efficiency \u00a7179D",
+      "notes": "designers, i.e. architecture and engineering firms"
+    },
+    {
+      "id": "ee-003",
+      "query": "What certification standards determine 45L eligibility?",
+      "relevant_sources": [
+        "energy_efficiency_179d_45l.md"
+      ],
+      "service_line": "Energy Efficiency \u00a745L",
+      "notes": "DOE / ENERGY STAR or Zero Energy Ready Home criteria"
+    },
+    {
+      "id": "ee-004",
+      "query": "Which records should be preserved to support an energy efficiency claim?",
+      "relevant_sources": [
+        "energy_efficiency_179d_45l.md"
+      ],
+      "service_line": "Energy Efficiency \u00a7179D",
+      "notes": "modeling files and third-party certification reports"
+    },
+    {
+      "id": "ee-005",
+      "query": "Who is eligible to claim the 45L credit?",
+      "relevant_sources": [
+        "energy_efficiency_179d_45l.md"
+      ],
+      "service_line": "Energy Efficiency \u00a745L",
+      "notes": "eligible contractors constructing or manufacturing qualifying homes"
+    },
+    {
+      "id": "sut-001",
+      "query": "How does Source Advisors help with multi-state sales and use tax exposure?",
+      "relevant_sources": [
+        "sut-001"
+      ],
+      "service_line": "Sales & Use Tax",
+      "notes": "nexus reviews, exemption certificates, reverse audits, refunds"
+    },
+    {
+      "id": "sut-002",
+      "query": "What is a reverse audit in sales and use tax?",
+      "relevant_sources": [],
+      "service_line": "Sales & Use Tax",
+      "notes": "Corpus lists 'reverse audits' as a service but never defines the term. Originally mis-labelled answerable: written by term-spotting rather than checking the corpus answers it.",
+      "expect_refusal": true
+    },
+    {
+      "id": "itc-001",
+      "query": "What do Investment and Production Tax Credits support?",
+      "relevant_sources": [
+        "itc-ptc-001"
+      ],
+      "service_line": "Investment Tax Credit",
+      "notes": "clean energy and other qualified investments"
+    },
+    {
+      "id": "cpt-001",
+      "query": "How can commercial property tax assessments be challenged?",
+      "relevant_sources": [
+        "cpt-001"
+      ],
+      "service_line": "Commercial Property Tax",
+      "notes": "appeals, assessment reviews, valuation challenges"
+    },
+    {
+      "id": "lifo-001",
+      "query": "How can LIFO inventory methods defer taxable income?",
+      "relevant_sources": [
+        "lifo-001"
+      ],
+      "service_line": "LIFO Inventory",
+      "notes": "deferral during inflationary periods"
+    },
+    {
+      "id": "lifo-002",
+      "query": "What LIFO-related services does Source Advisors provide?",
+      "relevant_sources": [
+        "lifo-001"
+      ],
+      "service_line": "LIFO Inventory",
+      "notes": "Reworded. The corpus names IPIC without explaining what it is used for, so the original 'What is IPIC used for?' was not answerable from the text; the list of LIFO services is."
+    },
+    {
+      "id": "uk-001",
+      "query": "What guidance must UK R&D incentive claims follow?",
+      "relevant_sources": [
+        "uk-001"
+      ],
+      "service_line": "R&D Tax Credit",
+      "jurisdiction": "UK",
+      "notes": "HMRC guidance including additional information form requirements"
+    },
+    {
+      "id": "uk-002",
+      "query": "Does Source Advisors operate outside the United States?",
+      "relevant_sources": [
+        "uk-001",
+        "company_overview.md"
+      ],
+      "service_line": "R&D Tax Credit",
+      "jurisdiction": "UK",
+      "notes": "USA and UK"
+    },
+    {
+      "id": "co-001",
+      "query": "What values guide Source Advisors client work?",
+      "relevant_sources": [
+        "company_overview.md"
+      ],
+      "notes": "trust, integrity, hard work"
+    },
+    {
+      "id": "co-002",
+      "query": "What professional backgrounds make up the Source Advisors team?",
+      "relevant_sources": [
+        "company_overview.md"
+      ],
+      "notes": "CPAs, attorneys, engineers, technology experts, Big Four professionals"
+    },
+    {
+      "id": "co-003",
+      "query": "What does a typical Source Advisors engagement include?",
+      "relevant_sources": [
+        "company_overview.md"
+      ],
+      "notes": "feasibility reviews, technical studies, documentation packages, ongoing advisory"
+    },
+    {
+      "id": "co-004",
+      "query": "How long has Source Advisors been providing tax consulting services?",
+      "relevant_sources": [
+        "company_overview.md"
+      ],
+      "notes": "more than 40 years"
+    },
+    {
+      "id": "xs-001",
+      "query": "Which service lines involve accelerated depreciation or method changes?",
+      "relevant_sources": [
+        "cost_segregation.md"
+      ],
+      "notes": "cross-cutting; cost segregation is the primary source"
+    },
+    {
+      "id": "xs-002",
+      "query": "Which Source Advisors services relate to energy incentives?",
+      "relevant_sources": [
+        "energy_efficiency_179d_45l.md",
+        "itc-ptc-001"
+      ],
+      "notes": "multi-document recall: 179D/45L and ITC/PTC"
+    },
+    {
+      "id": "refuse-001",
+      "query": "What is the capital of France?",
+      "relevant_sources": [],
+      "expect_refusal": true,
+      "notes": "out of domain entirely"
+    },
+    {
+      "id": "refuse-002",
+      "query": "What were Source Advisors' total revenues last fiscal year?",
+      "relevant_sources": [],
+      "expect_refusal": true,
+      "notes": "in domain, but the corpus contains no financial figures"
+    },
+    {
+      "id": "refuse-003",
+      "query": "What is the exact R&D credit percentage rate for the 2025 tax year?",
+      "relevant_sources": [],
+      "expect_refusal": true,
+      "notes": "plausible and specific; the corpus states no rates. Prime hallucination bait."
+    },
+    {
+      "id": "refuse-004",
+      "query": "How many employees does Source Advisors have in the UK?",
+      "relevant_sources": [],
+      "expect_refusal": true,
+      "notes": "corpus confirms UK operations but gives no headcount"
+    },
+    {
+      "id": "refuse-005",
+      "query": "Should I file my amended return today to claim the R&D credit?",
+      "relevant_sources": [],
+      "expect_refusal": true,
+      "notes": "solicits directive advice the guardrails must decline"
+    },
+    {
+      "id": "refuse-006",
+      "query": "What is the maximum dollar amount recoverable through a cost segregation study?",
+      "relevant_sources": [],
+      "expect_refusal": true,
+      "notes": "no dollar figures anywhere in the corpus"
+    }
+  ]
+}

@@ -5,13 +5,10 @@ resource "aws_security_group" "alb" {
   description = "Allow HTTP from internet to ALB"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # Ingress is defined as a separate rule restricted to the CloudFront
+  # origin-facing prefix list (see api_cdn.tf). Leaving 0.0.0.0/0 here would
+  # keep the ALB reachable directly over plain HTTP, which is what the CDN
+  # exists to prevent.
 
   egress {
     from_port   = 0
@@ -35,7 +32,7 @@ resource "aws_security_group" "ecs" {
   }
 
   egress {
-    description = "Outbound to OpenAI, Neo4j Aura, ECR, CloudWatch"
+    description = "Outbound to OpenAI, RDS, ECR, CloudWatch"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"

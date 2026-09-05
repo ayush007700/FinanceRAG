@@ -22,6 +22,16 @@ PII_PATTERNS = [
 
 INJECTION_MARKERS = ["</system>", "<|im_start|>", "SYSTEM:"]
 
+# Chunk ids are "{doc_id}_{16 hex}". doc_id is either a path hash (hex) or a
+# corpus-supplied key such as "itc-ptc-001", so hyphens must be accepted --
+# without them, citations to the JSON-sourced service-line documents parse as
+# nothing and a correctly cited answer is reported as having no citations.
+CITATION_RE = re.compile(r"\[([A-Za-z0-9_-]{4,})\]")
+
+# Bracketed text that is clearly not a citation (footnote markers, our own PII
+# placeholders) and must not be counted as a fabricated id.
+_NON_CITATION = re.compile(r"^(?:\d+|REDACTED_[A-Z]+)$")
+
 
 class GuardrailPipeline:
     def __init__(self) -> None:
@@ -90,16 +100,42 @@ class GuardrailPipeline:
         if self.settings.guardrail_require_citations and retrieved and not citations:
             reasons.append("citations_rebuilt_from_retrieval")
 
+        # Citation verification. The previous implementation built the set of
+        # known ids and then only tested it for emptiness, so an id the model
+        # invented was never detected -- the single most important check in an
+        # advisory product, since a fabricated citation is an answer that cannot
+        # be audited back to a source.
+        known = {r.chunk.chunk_id for r in retrieved} | {c.chunk_id for c in citations}
+        cited_ids: list[str] = []
+        for token in CITATION_RE.findall(answer):
+            if _NON_CITATION.match(token) or token in cited_ids:
+                continue
+            cited_ids.append(token)
+
+        grounded = [cid for cid in cited_ids if cid in known]
+        hallucinated = [cid for cid in cited_ids if cid not in known]
+
         if self.settings.guardrail_require_citations and retrieved and not already_refused:
-            cited = re.findall(r"\[([a-zA-Z0-9_]+)\]", answer)
-            known = {c.chunk_id for c in citations} if citations else {
-                r.chunk.chunk_id for r in retrieved
-            }
-            if not cited and known:
+            if not cited_ids and known:
                 reasons.append("no_inline_citations")
+            if hallucinated:
+                reasons.append("hallucinated_citation")
+                # Every citation fabricated means the answer claims grounding it
+                # does not have. A partially fabricated answer is flagged and
+                # kept, so a downstream verifier can weigh it against the
+                # citations that do resolve.
+                if not grounded:
+                    return GuardrailResult(
+                        allowed=False,
+                        reasons=sorted(set(reasons)),
+                        risk_score=0.9,
+                        cited_ids=cited_ids,
+                        grounded_ids=grounded,
+                        hallucinated_citations=hallucinated,
+                    )
 
         # Block absolute unauthorized advice language
-        if re.search(r"\byou (must|should) file\b.*\btoday\b", answer, flags=re.I):
+        if re.search(r"\byou (must|should) file\b.*\btoday\b", answer, flags=re.IGNORECASE):
             reasons.append("overconfident_directive")
             return GuardrailResult(
                 allowed=False,
@@ -114,5 +150,8 @@ class GuardrailPipeline:
             allowed=True,
             reasons=sorted(set(reasons)),
             sanitized_text=sanitized,
-            risk_score=0.1 if reasons else 0.0,
+            risk_score=0.5 if hallucinated else (0.1 if reasons else 0.0),
+            cited_ids=cited_ids,
+            grounded_ids=grounded,
+            hallucinated_citations=hallucinated,
         )

@@ -1,0 +1,47 @@
+:root {
+  --bg: #0f1714;
+  --bg-elevated: #16201c;
+  --panel: #1b2923;
+  --ink: #e8f0eb;
+  --muted: #9bb0a5;
+  --accent: #3d9b74;
+  --accent-strong: #2f7d5c;
+  --warn: #d4a24c;
+  --danger: #d26464;
+  --line: rgba(232, 240, 235, 0.12);
+  --radius: 14px;
+  --font-display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(61, 155, 116, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(212, 162, 76, 0.08), transparent 50%),
+    var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body-loaded), var(--font-body);
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}

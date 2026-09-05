@@ -46,3 +46,51 @@ output "github_actions_secret_access_key" {
   value       = aws_iam_access_key.github_actions.secret
   sensitive   = true
 }
+
+output "rds_endpoint" {
+  description = "Postgres endpoint (private; reachable only from ECS tasks)"
+  value       = aws_db_instance.main.address
+}
+
+output "database_ssm_parameter" {
+  description = "SSM parameter holding the full DATABASE_URL"
+  value       = aws_ssm_parameter.database_url.name
+}
+
+output "uploads_bucket" {
+  description = "S3 bucket for uploaded documents"
+  value       = aws_s3_bucket.uploads.bucket
+}
+
+output "alarm_topic_arn" {
+  description = "SNS topic the CloudWatch alarms publish to"
+  value       = aws_sns_topic.alarms.arn
+}
+
+output "api_url" {
+  description = "Base URL. HTTPS once acm_certificate_arn is set."
+  value       = var.acm_certificate_arn == "" ? "http://${aws_lb.api.dns_name}" : "https://${aws_lb.api.dns_name}"
+}
+
+output "nat_gateway_enabled" {
+  description = "False means tasks run in public subnets, SG-locked, without a NAT gateway."
+  value       = var.enable_nat_gateway
+}
+
+output "migrate_task_family" {
+  description = "One-shot migration task definition, run by CD before deploying"
+  value       = aws_ecs_task_definition.migrate.family
+}
+
+output "private_subnet_ids" {
+  description = "Subnets the migration task runs in"
+  value       = aws_subnet.private[*].id
+}
+
+output "public_subnet_ids" {
+  value = aws_subnet.public[*].id
+}
+
+output "ecs_security_group_id" {
+  value = aws_security_group.ecs.id
+}

@@ -14,11 +14,12 @@ env:
   ECS_CLUSTER: ${{ vars.ECS_CLUSTER || 'source-advisors-finance-rag-cluster' }}
   ECS_SERVICE: ${{ vars.ECS_SERVICE || 'source-advisors-finance-rag-svc' }}
   ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY || 'source-advisors-finance-rag-api' }}
+  MIGRATE_TASK_FAMILY: ${{ vars.MIGRATE_TASK_FAMILY || 'source-advisors-finance-rag-migrate' }}
   CONTAINER_NAME: api
 
 jobs:
   deploy:
-    name: Build → ECR → ECS
+    name: Build → Migrate → Deploy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +48,73 @@ jobs:
           docker push "$REGISTRY/$ECR_REPOSITORY:latest"
           echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
+      # ------------------------------------------------------------------
+      # Migrations run before the deploy, inside the VPC.
+      #
+      # They cannot run from this runner: RDS is in private subnets and is not
+      # publicly accessible. They also must not run from the API container on
+      # startup, because N tasks would race N migration runs against one schema.
+      # A one-shot ECS task with the new image is the only place both are true.
+      # ------------------------------------------------------------------
+      - name: Resolve network configuration
+        id: net
+        run: |
+          SUBNETS=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' \
+            --output text | tr '\t' ',')
+          SGS=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups' \
+            --output text | tr '\t' ',')
+          PUBLIC_IP=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.assignPublicIp' \
+            --output text)
+          echo "subnets=$SUBNETS"     >> "$GITHUB_OUTPUT"
+          echo "sgs=$SGS"             >> "$GITHUB_OUTPUT"
+          echo "public_ip=$PUBLIC_IP" >> "$GITHUB_OUTPUT"
+
+      - name: Register migration task with the new image
+        id: migrate-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition-family: ${{ env.MIGRATE_TASK_FAMILY }}
+          container-name: migrate
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Run migrations
+        run: |
+          TASK_DEF=$(aws ecs register-task-definition \
+            --cli-input-json "file://${{ steps.migrate-def.outputs.task-definition }}" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$TASK_DEF" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.net.outputs.subnets }}],securityGroups=[${{ steps.net.outputs.sgs }}],assignPublicIp=${{ steps.net.outputs.public_ip }}}" \
+            --query 'tasks[0].taskArn' --output text)
+
+          echo "migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN"
+
+          # A non-zero exit means the schema is not what the new image expects,
+          # so the deploy must stop here rather than ship code against it.
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          REASON=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN" \
+            --query 'tasks[0].stoppedReason' --output text)
+
+          echo "exit code: $EXIT_CODE ($REASON)"
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::Migrations failed (exit $EXIT_CODE): $REASON"
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------
+      # API deploy
+      # ------------------------------------------------------------------
       - name: Download current task definition
         run: |
           aws ecs describe-task-definition \
@@ -68,3 +136,54 @@ jobs:
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
+
+  ui:
+    name: Build & publish UI
+    runs-on: ubuntu-latest
+    # Independent of the API deploy: a static bundle cannot break the backend,
+    # and blocking the UI on service stability adds minutes for no safety.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.3.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build static export
+        working-directory: web
+        env:
+          # Baked in at build time: NEXT_PUBLIC_* is inlined into the bundle,
+          # so this cannot be changed without rebuilding.
+          NEXT_PUBLIC_API_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish to S3 and invalidate CloudFront
+        env:
+          UI_BUCKET: ${{ vars.UI_BUCKET }}
+          UI_DISTRIBUTION_ID: ${{ vars.UI_DISTRIBUTION_ID }}
+        run: |
+          if [ -z "$UI_BUCKET" ]; then
+            echo "UI_BUCKET not set; skipping UI publish"
+            exit 0
+          fi
+          # Hashed assets are immutable and cached hard; HTML must revalidate or
+          # users keep a stale bundle pointing at old API contracts.
+          aws s3 sync web/out "s3://$UI_BUCKET" --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "*.html"
+          aws s3 sync web/out "s3://$UI_BUCKET" --delete \
+            --cache-control "public,max-age=0,must-revalidate" \
+            --exclude "*" --include "*.html"
+          aws cloudfront create-invalidation \
+            --distribution-id "$UI_DISTRIBUTION_ID" --paths "/*"

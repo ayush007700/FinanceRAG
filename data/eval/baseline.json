@@ -1,0 +1,73 @@
+{
+  "n_cases": 39,
+  "n_answerable": 32,
+  "n_refusal_cases": 7,
+  "hit_rate": 0.9062,
+  "mrr": 0.7474,
+  "ndcg": 0.7759,
+  "precision_at_k": 0.225,
+  "recall_at_k": 0.8906,
+  "citation_precision": 0.85,
+  "faithfulness": null,
+  "answer_relevance": null,
+  "abstention_accuracy": 0.8718,
+  "refusal_recall": 1.0,
+  "latency_ms_p50": 4250.3,
+  "total_hallucinated_citations": 0,
+  "by_service_line": {
+    "Commercial Property Tax": {
+      "n": 1,
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "recall_at_k": 1.0
+    },
+    "Cost Segregation": {
+      "n": 6,
+      "hit_rate": 0.8333,
+      "mrr": 0.5556,
+      "recall_at_k": 0.8333
+    },
+    "Energy Efficiency \u00a7179D": {
+      "n": 3,
+      "hit_rate": 1.0,
+      "mrr": 0.5833,
+      "recall_at_k": 1.0
+    },
+    "Energy Efficiency \u00a745L": {
+      "n": 2,
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "recall_at_k": 1.0
+    },
+    "Investment Tax Credit": {
+      "n": 1,
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "recall_at_k": 1.0
+    },
+    "LIFO Inventory": {
+      "n": 2,
+      "hit_rate": 1.0,
+      "mrr": 0.75,
+      "recall_at_k": 1.0
+    },
+    "R&D Tax Credit": {
+      "n": 10,
+      "hit_rate": 0.9,
+      "mrr": 0.7833,
+      "recall_at_k": 0.85
+    },
+    "Sales & Use Tax": {
+      "n": 1,
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "recall_at_k": 1.0
+    },
+    "unlabelled": {
+      "n": 6,
+      "hit_rate": 0.8333,
+      "mrr": 0.75,
+      "recall_at_k": 0.8333
+    }
+  }
+}

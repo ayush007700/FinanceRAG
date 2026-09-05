@@ -1,0 +1,90 @@
+name: Eval
+
+# Separate from CI on purpose: this workflow spends real money on model calls and
+# needs an indexed corpus, so it must not run on every push. It is the gate for
+# retrieval quality regressions, not for correctness.
+
+on:
+  workflow_dispatch:
+    inputs:
+      save_baseline:
+        description: "Overwrite data/eval/baseline.json with this run's results"
+        type: boolean
+        default: false
+      no_judge:
+        description: "Skip LLM judging (cheaper, drops faithfulness metrics)"
+        type: boolean
+        default: false
+  schedule:
+    # Weekly drift check: model endpoints change under pinned aliases.
+    - cron: "0 6 * * 1"
+
+jobs:
+  eval:
+    name: Golden-set evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: finrag
+          POSTGRES_PASSWORD: finrag
+          POSTGRES_DB: finrag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finrag -d finrag"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql+psycopg://finrag:finrag@127.0.0.1:5432/finrag
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      RERANK_PROVIDER: cohere
+      # Redis is absent here; caching would mask real retrieval behaviour anyway.
+      CACHE_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Index corpus
+        run: finance-rag index data/corpus
+
+      - name: Run evaluation
+        run: |
+          ARGS=""
+          if [ "${{ inputs.no_judge }}" = "true" ]; then ARGS="$ARGS --no-judge"; fi
+          if [ "${{ inputs.save_baseline }}" = "true" ]; then ARGS="$ARGS --save-baseline"; fi
+          # Label the run with the commit so the history table is navigable.
+          python scripts/run_eval.py $ARGS --label "ci-${GITHUB_SHA::7}"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: data/processed/eval_report.json
+
+      - name: Upload updated baseline
+        if: ${{ inputs.save_baseline }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-baseline
+          path: data/eval/baseline.json

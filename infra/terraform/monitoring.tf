@@ -1,3 +1,16 @@
+# The alarms below previously had no action: they changed state and told nobody.
+resource "aws_sns_topic" "alarms" {
+  name = "${var.project_name}-alarms"
+}
+
+resource "aws_sns_topic_subscription" "alarms_email" {
+  count = var.alarm_email == "" ? 0 : 1
+
+  topic_arn = aws_sns_topic.alarms.arn
+  protocol  = "email"
+  endpoint  = var.alarm_email
+}
+
 # CloudWatch dashboards + alarms for ops visibility
 
 resource "aws_cloudwatch_dashboard" "rag" {
@@ -69,6 +82,9 @@ resource "aws_cloudwatch_dashboard" "rag" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
   alarm_name          = "${var.project_name}-alb-5xx"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
@@ -84,6 +100,9 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "high_cpu" {
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
   alarm_name          = "${var.project_name}-ecs-cpu"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
@@ -100,6 +119,9 @@ resource "aws_cloudwatch_metric_alarm" "high_cpu" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rag_latency" {
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
   alarm_name          = "${var.project_name}-ask-latency"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3

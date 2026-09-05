@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential

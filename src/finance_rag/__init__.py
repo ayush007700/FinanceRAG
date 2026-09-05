@@ -1,3 +1,3 @@
-"""FinanceRAG — Advanced LangGraph + Neo4j RAG for Source Advisors."""
+"""FinanceRAG - LangGraph RAG over Postgres/pgvector for Source Advisors."""
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

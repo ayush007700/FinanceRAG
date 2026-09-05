@@ -1,18 +1,23 @@
 aws_region   = "ap-south-1"
 project_name = "source-advisors-finance-rag"
 
-# From Neo4j Aura console (Connection URI). Prefer neo4j+s:// ...
-neo4j_uri      = "neo4j+s://XXXXXXXX.databases.neo4j.io"
-neo4j_user     = "neo4j"
-neo4j_password = "YOUR_AURA_PASSWORD"
-neo4j_database = "neo4j"
-
 openai_api_key = "sk-..."
+
+# Optional. Empty = no reranking (falls back to RRF order), no SSM parameter created.
+cohere_api_key = ""
+
+# RDS Postgres + pgvector (created by this stack, private subnets only).
+# The password is folded into DATABASE_URL and stored as an SSM SecureString.
+db_password = "CHANGE_ME_STRONG_PASSWORD"
+
+# Lean defaults; raise for production.
+# db_instance_class = "db.t4g.micro"
+# db_multi_az       = false
 
 # Leave empty on first apply (uses ECR :latest). CI will deploy real digests/tags.
 container_image = ""
 
-# e.g. "ayush007700/FinanceRAG" (owner/repo only — no https://)
+# e.g. "ayush007700/FinanceRAG" (owner/repo only - no https://)
 github_org_repo = ""
 
 desired_count = 2

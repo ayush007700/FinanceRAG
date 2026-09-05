@@ -10,6 +10,28 @@ jobs:
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: finrag
+          POSTGRES_PASSWORD: finrag
+          POSTGRES_DB: finrag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finrag -d finrag"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Runner-local database, so store integration tests execute rather than skip.
+      DATABASE_URL: postgresql+psycopg://finrag:finrag@127.0.0.1:5432/finrag
+      OPENAI_API_KEY: ""
+      COHERE_API_KEY: ""
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,8 +45,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # No "|| true": lint failures fail the build. The codebase is clean, and a
+      # gate that cannot fail is not a gate.
       - name: Ruff
-        run: ruff check src tests || true
+        run: ruff check src tests scripts migrations
+
+      - name: Apply migrations
+        run: alembic upgrade head
 
       - name: Pytest
         run: pytest -q
