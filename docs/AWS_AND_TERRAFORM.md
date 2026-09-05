@@ -33,6 +33,54 @@ The single largest saving came from deleting one resource, not from tuning nine.
 
 ---
 
+## 1b. IAM: four identities, each scoped to one job
+
+Least privilege here is not decoration -- two of these were caught granting too
+little, which is the direction that produces a broken deploy rather than a
+breach, but the reasoning is the same.
+
+| identity | type | holds | why it exists |
+|---|---|---|---|
+| `...-exec` | role | pull from ECR, read `/{project}/*` in SSM, write logs | **execution role**: what the ECS *agent* uses to start a container |
+| `...-task` | role | S3 read/write on the uploads bucket, `cloudwatch:PutMetricData`, `ecs:RunTask` + `iam:PassRole` | **task role**: what the *application* uses at runtime |
+| `...-gha-user` | user | ECR push, ECS register/run/update, `iam:PassRole`, S3 sync + CloudFront invalidation | CI/CD deploy identity |
+| `...-github-actions` | role | OIDC trust (unused; access keys proved more reliable for this account) | kept for the OIDC path |
+
+**Execution role vs task role** is the distinction interviewers probe. The
+execution role is used *before* your code runs -- pulling the image, resolving
+secrets into environment variables. The task role is assumed *by* your code.
+Secrets injection needs the execution role; calling S3 from Python needs the
+task role. Confusing them produces a container that starts and then cannot do
+anything, or one that never starts at all.
+
+**`iam:PassRole` is the non-obvious one.** The API launches indexing tasks, and
+those tasks assume the execution and task roles. AWS requires the caller to hold
+`iam:PassRole` for exactly the roles being passed -- otherwise anyone able to
+call `RunTask` could launch a task wearing a more privileged role. Omitting it
+fails `RunTask` with an authorization error that does not mention PassRole.
+
+**Two permissions CI needed that were not obvious:**
+
+- `ecs:TagResource` -- the provider applies `default_tags` to everything, so a
+  re-registered task definition carries tags and registering it requires
+  permission to tag. `RegisterTaskDefinition` alone is refused.
+- `ecs:RunTask` -- absent entirely at first. The deploy could build and update a
+  service but not run the migration task, which is the step that must precede
+  the deploy.
+
+## 1c. Three task definitions, one image
+
+| family | shape | command | why separate |
+|---|---|---|---|
+| `...-api` | 0.5 vCPU / 1 GiB | `uvicorn` | request serving is IO-bound on model APIs |
+| `...-migrate` | 0.5 vCPU / 1 GiB | `alembic upgrade head` | must run inside the VPC; RDS is private |
+| `...-index` | **2 vCPU / 8 GiB** | `finance-rag run-job <id>` | parsing is CPU- and memory-bound |
+
+The sizing difference is not a preference. Indexing this corpus inside the API
+container was SIGKILLed with **exit 137** every time -- pdfplumber holds the full
+page model for a 113-page publication. It completed at 8 GiB. Same image, three
+shapes, because *serving* and *parsing* are different workloads.
+
 ## 2. The NAT gateway decision
 
 This is the most instructive cost decision in the stack, and a good interview
@@ -267,6 +315,87 @@ Two things that break a UI deployment regardless of host:
 
 ---
 
+## 7b. End-to-end flows
+
+### A question, from browser to answer
+
+```
+Browser
+  │  HTTPS
+  ▼
+CloudFront (UI)  ──▶ S3 static bundle
+  │
+  │  fetch(NEXT_PUBLIC_API_URL)   ← inlined at build time
+  ▼
+CloudFront (API)  ──HTTP + X-Origin-Verify──▶ ALB ──▶ ECS task
+  │                                            │
+  │                            listener rule: secret header or 403
+  │                            security group: CloudFront prefix list only
+  ▼
+FastAPI  ──run_in_threadpool──▶ MultiAgentRAG
+  │
+  ├─ Supervisor      route + rewrite            (cheap model)
+  ├─ Researcher      RRF in one SQL statement   (RDS, no model call)
+  ├─ Cohere rerank   cross-encoder
+  ├─ Answerability   can this be answered?      (cheap model)
+  ├─ Analyst         grounded answer            (full model)
+  ├─ Critic          verify claims              (cheap model)
+  └─ Compliance      guardrails + audit row     (no model)
+  │
+  ▼
+answer + citations  ──▶ query_audit (append-only)
+```
+
+Every hop is deliberate: HTTPS at both edges, the ALB unreachable except through
+CloudFront, the blocking agent off the event loop, and the audit row written
+before the response returns.
+
+### A deploy, from push to running
+
+```
+git push main
+  │
+  ▼
+CI            ruff + 238 tests against a pgvector service container
+  │
+  ▼
+CD ─ Build    docker build ──▶ ECR (tagged with the commit sha)
+   │
+   ├─ Migrate  ECS RunTask: alembic upgrade head, inside the VPC
+   │             └─ non-zero exit stops the deploy
+   │
+   ├─ Deploy   render task def with the new image ──▶ ECS rolling update
+   │             └─ wait-for-service-stability
+   │
+   └─ UI       npm ci && next build (static export)
+                 ──▶ S3 sync ──▶ CloudFront invalidation
+```
+
+Migrations run **inside the VPC** because RDS is private and unreachable from a
+GitHub runner, and **not** on API container startup because N tasks would race N
+migration runs against one schema.
+
+### Indexing, from request to rows
+
+```
+POST /v1/index
+  │
+  ▼
+create job row (queued) ──▶ ecs:RunTask ──▶ index task (2 vCPU / 8 GiB)
+  │                                            │
+  │  202 + job_id returned immediately         ├─ marks row running
+  │                                            ├─ parse · chunk · embed
+  ▼                                            ├─ writes chunks to RDS
+GET /v1/jobs/{id}  ◀── polls the row           └─ marks succeeded / failed
+```
+
+The **task** updates the row, not the caller, so the row records what happened
+rather than what was dispatched. A dispatch failure marks the row failed rather
+than leaving it queued for a worker that does not exist, and the next container
+start reaps anything a killed worker abandoned.
+
+---
+
 ## 8. Interview questions this covers
 
 **Architecture**
@@ -284,6 +413,22 @@ Two things that break a UI deployment regardless of host:
 - Why `ignore_changes` on `desired_count` and `task_definition`?
 - How do you handle a secret that may legitimately be empty?
 - Why does remote state matter before a second person joins?
+
+**IAM**
+- Execution role vs task role — what uses each, and when does confusing them
+  bite? *(Secrets injection needs the execution role; calling S3 from your code
+  needs the task role.)*
+- Why does `RunTask` require `iam:PassRole`? *(Otherwise anyone able to call it
+  could launch a task wearing a more privileged role.)*
+- Why did `RegisterTaskDefinition` fail even though the action was allowed?
+  *(default_tags means the definition carries tags, so tagging permission is
+  required too.)*
+
+**Sizing**
+- Why three task definitions from one image?
+- What does exit code 137 mean, and what would you change? *(SIGKILL / OOM —
+  and the fix was a differently-sized task, not a bigger service.)*
+- Why is the API 0.5 vCPU while indexing is 2 vCPU / 8 GiB?
 
 **Security**
 - How do secrets reach a container without being in the image?

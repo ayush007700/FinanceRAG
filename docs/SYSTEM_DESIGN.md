@@ -4,8 +4,8 @@ A retrieval system for tax advisory work: multi-agent, grounded, and built so
 that a wrong answer is harder to produce than no answer.
 
 Every design decision below is stated with the reason it was chosen **and** the
-evidence that forced it. The war stories at the end are the real bugs found
-building it, with the numbers.
+evidence that forced it. The 32 war stories at the end are the real bugs found building it, with the
+numbers -- including six that only appeared once it was running in AWS.
 
 ---
 
@@ -414,6 +414,63 @@ better informed, so refusals belong there**.
 Restored by folding it into the Supervisor's existing call — one cheap call now
 does routing *and* rewriting.
 
+### Production-only (none of these reproduce locally)
+
+**27. An endpoint that always reported success and never delivered.**
+`/v1/index` ran the pipeline as a FastAPI background task inside the API
+container, returned `202` immediately, then died. Three times. The diagnosis
+changed twice before it was right:
+
+1. *Job 1* — killed by a CD deploy replacing the container mid-run. Predicted,
+   and documented in `jobs.py` before it happened.
+2. *Job 2* — CloudWatch showed memory flat at 12.4% and CPU at 0.69%, so I
+   concluded `asyncio.CancelledError` during request teardown. **Wrong.**
+   `MemoryUtilization` is sampled; it simply missed the spike.
+3. *Standalone task* — **exit 137**. SIGKILL. Out of memory all along.
+
+The lesson is about instrumentation, not memory: an averaged metric reporting
+"idle" was read as "not working", when it meant "not observed". Running the work
+as its own task produced an *exit code*, which is unambiguous where a sampled
+gauge is not. It was worth doing before it succeeded, purely for that.
+
+The fix is architectural: the API is 0.5 vCPU / 1 GiB because serving is
+IO-bound on model APIs; pdfplumber holds the full page model for a 113-page
+publication and needed 8 GiB. Same image, different task, different shape.
+
+**28. Two jobs claimed to be running for hours after nothing was running them.**
+`run_job` caught `Exception`. `asyncio.CancelledError` and `SystemExit` derive
+from `BaseException`, so a cancelled or killed worker never reached the handler
+that marks the row failed. The job table — the record of what was indexed and
+when — was lying. It now catches `BaseException`, re-raises anything that is not
+an ordinary error so a real shutdown still exits, and reaps abandoned rows on
+startup, which is exactly when a replacement container can tell the truth about
+its predecessor.
+
+**29. Two IAM permissions that fail in non-obvious ways.**
+`ecs:TagResource` was missing, so `RegisterTaskDefinition` was refused even
+though that action was allowed — the provider's `default_tags` means the
+definition carries tags. And `ecs:RunTask` was absent entirely, which would have
+failed on the very next step. Both are the *deploy* breaking rather than a
+breach, but the reasoning is identical.
+
+**30. A shell pipeline hid a failed `terraform apply`.**
+`terraform apply | tail -60` reported exit 0 while RDS had failed to create — a
+pipeline reports the *last* command's status. This is war story #17 in a
+different costume, and I walked into it again an hour after writing that entry
+down.
+
+**31. `engine_version = "16.4"` does not exist in ap-south-1.**
+Minor-version availability is regional; 16.10 through 16.15 are offered there.
+Pinning a minor is the mistake. Major-only (`"16"`) lets AWS select, with
+`ignore_changes = [engine_version]` because minors will drift as AWS upgrades
+them.
+
+**32. The AWS CLI defaulted to a different region than the stack.**
+`ap-south-2` against infrastructure in `ap-south-1`, so log and cluster queries
+returned "does not exist" — maximally misleading while debugging something that
+was, in fact, running. Worth checking `aws configure get region` before believing
+any "not found".
+
 ### Infrastructure
 
 **20. A port collision that looked like bad credentials.**
@@ -471,6 +528,15 @@ topic. They changed state and told nobody.
 - Why can't cosine similarity decide whether a question is answerable?
 - What's the most dangerous kind of wrong answer in finance? *(Related-quantity
   substitution — precise, sourced, and about something else.)*
+
+**Operations**
+- Where should long-running work live in a web service, and why?
+- What does exit code 137 mean? *(SIGKILL — on Fargate, out of memory.)*
+- Why catch `BaseException` in a job runner when that is normally wrong?
+  *(Cancellation and shutdown derive from it, and a job table that lies about
+  its own state is worse than no job table.)*
+- A metric reads flat and low. What are the two possible meanings? *(Idle, or
+  not sampled — and averaged gauges cannot distinguish them.)*
 
 **Data**
 - Why does PDF parsing matter more than model choice here?
