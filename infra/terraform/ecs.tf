@@ -114,6 +114,10 @@ resource "aws_ecs_task_definition" "api" {
         { name = "OPENAI_EMBEDDING_DIMENSIONS", value = "1536" },
         { name = "S3_BUCKET", value = aws_s3_bucket.uploads.bucket },
         { name = "ENFORCE_TENANCY", value = "true" },
+        # The keys themselves arrive as a secret, below. This flag only decides
+        # whether they are demanded; with it true and no keys supplied, the task
+        # refuses to start rather than serving /v1 openly.
+        { name = "AUTH_ENABLED", value = var.auth_enabled ? "true" : "false" },
         # Indexing is dispatched to its own task; running it in this container
         # exceeds the memory limit and dies with exit 137.
         { name = "INDEX_RUNNER", value = "ecs" },
@@ -148,6 +152,10 @@ resource "aws_ecs_task_definition" "api" {
         var.cohere_api_key != "" ? [{
           name      = "COHERE_API_KEY"
           valueFrom = aws_ssm_parameter.cohere_api_key[0].arn
+        }] : [],
+        var.auth_api_keys != "" ? [{
+          name      = "AUTH_API_KEYS"
+          valueFrom = aws_ssm_parameter.auth_api_keys[0].arn
         }] : []
       )
       logConfiguration = {

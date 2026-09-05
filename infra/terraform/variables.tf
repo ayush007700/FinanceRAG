@@ -29,6 +29,28 @@ variable "cohere_api_key" {
   default     = ""
 }
 
+variable "auth_api_keys" {
+  type        = string
+  sensitive   = true
+  description = <<-EOT
+    Bearer credentials for the /v1 API, comma-separated as
+    "key_id:org_id:scopes:secret". Scopes are '|'-separated from ask/index/read,
+    or '*'. The org is a property of the key, so a caller cannot name another
+    tenant.
+
+    Empty is not a way to leave the API open: the task refuses to start when
+    auth is on and no keys are configured. Set auth_enabled = false for that,
+    deliberately.
+  EOT
+  default     = ""
+}
+
+variable "auth_enabled" {
+  type        = bool
+  description = "Require a bearer credential on /v1. Turn off only when a gateway in front of the ALB authenticates instead."
+  default     = true
+}
+
 variable "cohere_rerank_model" {
   type        = string
   description = "Cohere rerank model id"

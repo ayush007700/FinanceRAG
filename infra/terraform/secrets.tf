@@ -24,3 +24,15 @@ resource "aws_ssm_parameter" "cohere_api_key" {
   type  = "SecureString"
   value = var.cohere_api_key
 }
+
+# The /v1 bearer credentials. Same reasoning as the model keys: they reach the
+# container as a runtime secret, never as an image layer or a task-definition
+# environment variable, both of which are readable by anyone with
+# ecs:DescribeTaskDefinition.
+resource "aws_ssm_parameter" "auth_api_keys" {
+  count = var.auth_api_keys != "" ? 1 : 0
+
+  name  = "/${var.project_name}/AUTH_API_KEYS"
+  type  = "SecureString"
+  value = var.auth_api_keys
+}

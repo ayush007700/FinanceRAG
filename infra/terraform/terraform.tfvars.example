@@ -6,6 +6,13 @@ openai_api_key = "sk-..."
 # Optional. Empty = no reranking (falls back to RRF order), no SSM parameter created.
 cohere_api_key = ""
 
+# Bearer credentials for /v1, comma-separated "key_id:org_id:scopes:secret".
+# Scopes: ask | index | read, or "*". Generate secrets with `openssl rand -hex 32`.
+# Empty does NOT leave the API open — the task refuses to start. To serve without
+# authentication (only behind a gateway that does it), set auth_enabled = false.
+auth_api_keys = "ci:default:*:CHANGE_ME_RANDOM_SECRET"
+# auth_enabled = true
+
 # RDS Postgres + pgvector (created by this stack, private subnets only).
 # The password is folded into DATABASE_URL and stored as an SSM SecureString.
 db_password = "CHANGE_ME_STRONG_PASSWORD"
