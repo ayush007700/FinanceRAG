@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md alembic.ini ./
 COPY src ./src
 COPY migrations ./migrations
+# The evaluation harness runs as an ECS task: it builds the agent in-process
+# and needs the database, which is private and unreachable from a runner.
+COPY scripts ./scripts
 COPY data ./data
 
 RUN pip install --upgrade pip && pip install .
