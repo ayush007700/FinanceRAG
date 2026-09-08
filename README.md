@@ -249,21 +249,49 @@ handler degrades to no tracing, never to no answers.
 
 ## Deployment
 
+Full step-by-step, including where to find every GitHub value:
+**[`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)**
+
+`terraform apply` alone gives you *empty* infrastructure — no image in ECR, no
+schema in RDS, no documents indexed. Four steps, in order, each depending on the
+one before:
+
+```
+apply  ──▶  update GitHub config  ──▶  push  ──▶  index
+ 15 min          5 min                 8 min      5 min
+```
+
 ```bash
 cd infra/terraform
-cp terraform.tfvars.example terraform.tfvars   # db_password, openai_api_key, alarm_email
+cp terraform.tfvars.example terraform.tfvars
 terraform init && terraform apply
 ```
 
-Then, **in this order** — CD pushes to an ECR repo and updates an ECS service
-that must already exist:
+`terraform.tfvars` needs `db_password`, `openai_api_key`, `alarm_email` and
+**`auth_api_keys`**. That last one is not optional: `AUTH_ENABLED` defaults on
+outside development, and a deployed task with auth on and no keys refuses to
+start rather than serving `/v1` openly.
 
-1. `terraform apply`
-2. GitHub → Settings → Secrets → `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-   (from `terraform output github_actions_access_key_id` / `..._secret_access_key`)
-3. GitHub → Variables → `API_BASE_URL`, `UI_BUCKET`, `UI_DISTRIBUTION_ID`
-   (from `terraform output`)
-4. Push to `main` → **Build → Migrate → Deploy**, plus an independent UI job
+### GitHub configuration
+
+Every value below **changes on every recreate**, which is the step people forget.
+Read them with `terraform output -raw <name>` (plain `terraform output` masks the
+secret key):
+
+| GitHub | name | terraform output |
+|---|---|---|
+| **Secrets** tab | `AWS_ACCESS_KEY_ID` | `github_actions_access_key_id` |
+| | `AWS_SECRET_ACCESS_KEY` | `github_actions_secret_access_key` |
+| **Variables** tab | `API_BASE_URL` | `api_cdn_url` |
+| | `UI_BUCKET` | `ui_bucket` |
+| | `UI_DISTRIBUTION_ID` | `ui_distribution_id` |
+
+Both live at repo → Settings → **Secrets and variables** → **Actions**, on
+adjacent tabs. Variables are deliberately not secrets: none are sensitive, and
+masking a bucket name makes a failed `s3 sync` hard to debug. `API_BASE_URL` is
+inlined into the JS bundle at build time, so it is public by construction.
+
+Then push to `main` → **Build → Migrate → Deploy**, plus an independent UI job.
 
 Migrations run as a **one-shot ECS task inside the VPC**, not from the runner:
 RDS is in private subnets and unreachable from GitHub Actions, and running them
@@ -288,9 +316,9 @@ security group. The trade is real and stated in the variable description.
 Roughly **$41/month**. `terraform destroy` between demos beats every other
 optimisation.
 
-> Endpoint URLs come from `terraform output` and are deliberately **not** listed
-> here. The API has no authentication yet, and a public URL is an open invitation
-> to spend your model credits.
+> Endpoint URLs come from `terraform output` and are deliberately not listed
+> here — they change on every recreate, so a hard-coded URL in a README is wrong
+> the moment the stack is rebuilt.
 
 ### UI
 
@@ -308,8 +336,9 @@ cd web && npm install && npm run dev     # local, against API on :8000
 
 |                                                              |                                                                                                           |
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 26 war stories with real numbers |
-| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, Terraform patterns, CI/CD bootstrap, UI hosting                |
+| [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)           | Step-by-step deploy and teardown: tfvars, where every GitHub secret and variable comes from, indexing, gotchas |
+| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 32 war stories with real numbers |
+| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, IAM identities, Terraform patterns, CI/CD bootstrap, UI hosting |
 | [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion                                                     |
 | [`docs/TERRAFORM_AND_CICD.md`](docs/TERRAFORM_AND_CICD.md)   | ⚠️ **stale** — written for the removed Neo4j Aura deployment                                              |
 
