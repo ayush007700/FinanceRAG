@@ -1,10 +1,12 @@
 name: CI
 
+# Runs on every push to main and on PRs into either branch, including the
+# main -> master release PR. Deploys are cd.yml's job, not this one's.
 on:
   pull_request:
     branches: [main, master]
   push:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
   test:

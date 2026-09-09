@@ -5,8 +5,11 @@ import {
   AskResponse,
   HealthResponse,
   askQuestion,
+  clearApiKey,
   getHealth,
+  hasApiKey,
   indexCorpus,
+  setApiKey,
   uploadFile,
 } from "@/lib/api";
 import styles from "./page.module.css";
@@ -27,6 +30,14 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AskResponse | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [keySet, setKeySet] = useState(false);
+
+  // sessionStorage is unavailable during the static export's prerender, so the
+  // first paint has to assume no key and correct itself once mounted.
+  useEffect(() => {
+    setKeySet(hasApiKey());
+  }, []);
 
   useEffect(() => {
     getHealth()
@@ -39,6 +50,25 @@ export default function HomePage() {
         })
       );
   }, []);
+
+  function onSaveKey(e: FormEvent) {
+    e.preventDefault();
+    const key = keyInput.trim();
+    if (!key) return;
+    setApiKey(key);
+    setKeySet(true);
+    // Dropped from React state immediately: the input is the only place the
+    // secret needs to live, and keeping it re-renders it into the DOM.
+    setKeyInput("");
+    setError(null);
+    setStatusMsg("API key set for this tab.");
+  }
+
+  function onClearKey() {
+    clearApiKey();
+    setKeySet(false);
+    setStatusMsg("API key cleared.");
+  }
 
   async function onAsk(e: FormEvent) {
     e.preventDefault();
@@ -106,7 +136,38 @@ export default function HomePage() {
           {health?.langsmith ? (
             <span className={styles.badge}>LangSmith</span>
           ) : null}
+          <span className={keySet ? styles.badgeOk : styles.badgeDown}>
+            {keySet ? "API key set" : "No API key"}
+          </span>
         </div>
+
+        {/* Every /v1 route needs a bearer credential, and the key cannot ship
+            in the bundle -- a static export is readable by any visitor. Before
+            this, setApiKey was exported but never called, so the only way to
+            authenticate was to set sessionStorage by hand in devtools. */}
+        <form onSubmit={onSaveKey} className={styles.keyBar}>
+          <input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder={keySet ? "Replace API key…" : "Paste your API key"}
+            aria-label="API key"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button type="submit" className={styles.secondary} disabled={!keyInput.trim()}>
+            {keySet ? "Replace" : "Save key"}
+          </button>
+          {keySet ? (
+            <button type="button" className={styles.secondary} onClick={onClearKey}>
+              Clear
+            </button>
+          ) : null}
+        </form>
+        <p className={styles.muted}>
+          Stored in this tab only (sessionStorage) and sent as a bearer token. It
+          is never written to the bundle or shared with another tab.
+        </p>
       </header>
 
       <div className={styles.grid}>

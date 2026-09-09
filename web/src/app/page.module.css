@@ -226,3 +226,31 @@
   color: var(--warn) !important;
   border-color: rgba(212, 162, 76, 0.5) !important;
 }
+
+/* API key entry, in the header rather than a settings pane: with no key every
+   /v1 call 401s, so it is the first thing a new visitor needs. */
+.keyBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.keyBar input {
+  flex: 1 1 18rem;
+  min-width: 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.35);
+  color: inherit;
+  font: inherit;
+}
+
+.keyBar input::placeholder {
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.keyBar button {
+  flex: 0 0 auto;
+}

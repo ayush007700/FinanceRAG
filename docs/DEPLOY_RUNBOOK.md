@@ -51,6 +51,17 @@ python -c "import secrets,string; a=string.ascii_letters+string.digits+'-_'; pri
 > rather than serving `/v1` openly. Leaving it blank produces a deploy that
 > fails health checks with no obvious cause.
 
+> **All four fields are required.** The generator above prints only the *secret*,
+> and pasting it alone is the most common mistake here:
+>
+> ```hcl
+> auth_api_keys = "<40-char-secret>"                  # WRONG - bare secret
+> auth_api_keys = "demo:default:*:<40-char-secret>"   # RIGHT - key_id:org_id:scopes:secret
+> ```
+>
+> A bare secret raises `AUTH_API_KEYS entry 1 is malformed` at parse time. The
+> bearer token you send is the **secret field only** — never the whole string.
+
 ---
 
 ## Step 1 — apply
@@ -131,11 +142,16 @@ imply a protection that does not exist.
 
 ## Step 3 — push
 
+`main` is the integration branch and `master` is the release branch. Pushing to
+`main` runs CI only; **deploys happen when `main` merges into `master`.**
+
 ```bash
-git push origin main
+git push origin main                      # CI: ruff + pytest
+gh pr create --base master --head main    # then merge it -> CD deploys
 ```
 
-Or, with nothing to commit: **Actions** → latest run → **Re-run all jobs**.
+Or, to redeploy the current `master` with nothing to commit: **Actions** → **CD**
+→ **Run workflow** (`workflow_dispatch`), or latest run → **Re-run all jobs**.
 
 CD runs **Build → Migrate → Deploy**, plus an independent UI job:
 
@@ -154,7 +170,7 @@ code against a mismatched schema.
 Verify:
 
 ```bash
-curl.exe https://<api_cdn_url>/health
+curl.exe <api_cdn_url>/health
 ```
 
 `{"status":"ok","database":true}` means the image is live and RDS is reachable.
@@ -166,18 +182,30 @@ curl.exe https://<api_cdn_url>/health
 RDS now has the schema and **no documents**. Every question would correctly
 refuse, because there is nothing to retrieve.
 
+Use `Invoke-RestMethod`, not `curl.exe`. PowerShell 5.1 does not honour `\"`
+as an escape and re-splits the result when handing arguments to a native exe, so
+`-d "{\"paths\":...}"` arrives as a second URL and curl reads the `{...}` as
+glob syntax — `curl: (3) bad range specification`.
+
 ```powershell
-curl.exe -X POST https://<api_cdn_url>/v1/index `
-  -H "Authorization: Bearer <secret from auth_api_keys>" `
-  -H "Content-Type: application/json" `
-  -d "{\"paths\":[\"data/corpus\"]}"
+$api = "<api_cdn_url>"       # already includes https:// — do not add it again
+$key = "<secret field from auth_api_keys>"
+$h   = @{ Authorization = "Bearer $key" }
+
+$job = Invoke-RestMethod -Method Post -Uri "$api/v1/index" -Headers $h `
+  -ContentType "application/json" `
+  -Body (@{ paths = @("data/corpus") } | ConvertTo-Json)
+$job
 ```
 
 Returns `202` with a job id. Poll it:
 
 ```powershell
-curl.exe https://<api_cdn_url>/v1/jobs/1 -H "Authorization: Bearer <secret>"
+Invoke-RestMethod -Uri "$api/v1/jobs/$($job.job_id)" -Headers $h
 ```
+
+If you must use `curl.exe`, put the body in a file and pass `-d "@body.json"`;
+inline JSON is not worth the quoting fight.
 
 `succeeded` with ~972 chunks takes about 4 minutes. The work runs as its own
 ECS task at 2 vCPU / 8 GiB — it cannot run inside the API container, which is
@@ -186,11 +214,47 @@ sized at 0.5 vCPU / 1 GiB and gets SIGKILLed (exit 137) parsing a 113-page PDF.
 Then ask something real:
 
 ```powershell
-curl.exe -X POST https://<api_cdn_url>/v1/ask `
-  -H "Authorization: Bearer <secret>" `
-  -H "Content-Type: application/json" `
-  -d "{\"query\":\"What is the four-part test for R&D tax credit qualification?\"}"
+$q = @{ query = "What is the four-part test for R&D tax credit qualification?" }
+Invoke-RestMethod -Method Post -Uri "$api/v1/ask" -Headers $h `
+  -ContentType "application/json" -Body ($q | ConvertTo-Json)
 ```
+
+---
+
+## Finding everything in AWS
+
+`terraform output` is the source of truth. This section is for when you are in
+the console, or state is unavailable.
+
+Everything is tagged with `project_name` (`source-advisors-finance-rag`), so the
+name prefix is the thread to pull on. **Set your region first** — all of it lives
+in `ap-south-1`, and the console silently shows an empty list in the wrong one.
+CloudFront is the exception: it is global, listed under "Global" regardless.
+
+| what | console | CLI |
+|---|---|---|
+| **UI site** | CloudFront → distribution commented `... UI` → *Distribution domain name* | `terraform output -raw ui_url` |
+| **API endpoint** | CloudFront → distribution commented `... API` | `terraform output -raw api_cdn_url` |
+| UI bucket | S3 → `<project>-ui-<account-id>` | `terraform output -raw ui_bucket` |
+| API containers | ECS → cluster `<project>-cluster` → service `<project>-svc` | `terraform output -raw ecs_service_name` |
+| Images | ECR → repository `finance-rag` | `terraform output -raw ecr_repository_url` |
+| Database | RDS → `<project>` (private; no public endpoint) | `terraform output -raw rds_endpoint` |
+| Logs | CloudWatch → Log groups → `/ecs/<project>` | `terraform output -raw cloudwatch_log_group` |
+| Secrets at runtime | Systems Manager → Parameter Store → `/<project>/*` | `aws ssm get-parameters-by-path --path /<project> --with-decryption` |
+| Metrics | CloudWatch → Dashboards | `terraform output -raw cloudwatch_dashboard` |
+
+The two CloudFront distributions are the pair people confuse. Both are
+`d*.cloudfront.net` and neither name says which is which — read the **Comment**
+column, or the **Origin**: the UI points at an S3 bucket, the API at the ALB.
+
+```bash
+aws cloudfront list-distributions   --query "DistributionList.Items[].{Id:Id,Domain:DomainName,Comment:Comment,Origin:Origins.Items[0].DomainName}"   --output table
+```
+
+Note that Parameter Store, not `terraform.tfvars`, is what the running task
+reads. Editing tfvars changes nothing until `terraform apply` writes it through
+— so when a credential works locally but not against the deployment, compare
+those two before touching anything else.
 
 ---
 

@@ -30,3 +30,7 @@ infra/cdk.out/
 *.pem
 data/media/
 ask.json
+
+# Scratch notes and drafts written into docs/. The four committed guides stay
+# tracked: .gitignore does not apply to paths already in the index.
+docs/
