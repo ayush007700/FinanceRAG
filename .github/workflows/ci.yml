@@ -47,10 +47,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # The image installs from requirements.lock, so a lock that has drifted
+      # from pyproject.toml builds something the tests never ran against.
+      - name: Check the lock is in sync with pyproject
+        run: |
+          pip install pip-tools
+          pip-compile --quiet --strip-extras --output-file=/tmp/check.lock pyproject.toml
+          diff <(grep -v '^#' requirements.lock) <(grep -v '^#' /tmp/check.lock)             || { echo "::error::requirements.lock is stale; regenerate with pip-compile"; exit 1; }
+
       # No "|| true": lint failures fail the build. The codebase is clean, and a
       # gate that cannot fail is not a gate.
       - name: Ruff
         run: ruff check src tests scripts migrations
+
+      # Same rule as ruff: no "|| true". Modules that predate the gate are
+      # listed in pyproject's mypy overrides with their error counts, so the
+      # debt is visible rather than hidden behind a step that cannot fail.
+      - name: Mypy
+        run: mypy
 
       - name: Apply migrations
         run: alembic upgrade head

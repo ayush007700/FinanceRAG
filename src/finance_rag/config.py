@@ -110,6 +110,19 @@ class Settings(BaseSettings):
     # key, not of a client-supplied header, which is what makes it trustworthy.
     auth_api_keys: str = Field(default="", alias="AUTH_API_KEYS")
 
+    # --- rate limiting ----------------------------------------------------
+    # Authentication says who is spending; these bound how much. Limits are per
+    # credential and per scope, because `ask` costs model tokens and `index`
+    # launches a 2 vCPU task, while `read` touches rows that already exist.
+    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
+    rate_limit_ask: int = Field(default=30, alias="RATE_LIMIT_ASK")       # per minute
+    rate_limit_index: int = Field(default=5, alias="RATE_LIMIT_INDEX")    # per hour
+    rate_limit_read: int = Field(default=120, alias="RATE_LIMIT_READ")    # per minute
+    # Counters must be shared: the service autoscales, so per-process counters
+    # would give each task its own limit and scaling out would raise the
+    # effective limit rather than hold it.
+    rate_limit_use_redis: bool = Field(default=True, alias="RATE_LIMIT_USE_REDIS")
+
     # Effective dating. Off by default: a corpus without dates would retrieve
     # nothing if every document were treated as not-yet-effective.
     filter_by_effective_date: bool = Field(
@@ -202,7 +215,11 @@ class Settings(BaseSettings):
     aws_cloudwatch_namespace: str = Field(
         default="FinanceRAG/SourceAdvisors", alias="AWS_CLOUDWATCH_NAMESPACE"
     )
+    # Unset means tracing stays off: no collector, no exporter, no span
+    # processor. Turning it on is an environment variable rather than a deploy
+    # of different code, which is the property that makes it useful mid-incident.
     otel_exporter_otlp_endpoint: str = Field(default="", alias="OTEL_EXPORTER_OTLP_ENDPOINT")
+    otel_service_name: str = Field(default="finance-rag", alias="OTEL_SERVICE_NAME")
     enable_prometheus: bool = Field(default=True, alias="ENABLE_PROMETHEUS")
 
     company_name: str = "Source Advisors"
