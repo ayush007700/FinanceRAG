@@ -45,6 +45,18 @@ export function setApiKey(key: string): void {
   sessionStorage.setItem(API_KEY_STORAGE, key);
 }
 
+export function clearApiKey(): void {
+  sessionStorage.removeItem(API_KEY_STORAGE);
+}
+
+// Whether a key is present, not the key itself: the UI only needs to render
+// "set" or "not set", and handing the secret back out invites it into React
+// state and from there into any error boundary that serialises props.
+export function hasApiKey(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.sessionStorage.getItem(API_KEY_STORAGE));
+}
+
 function authHeaders(): Record<string, string> {
   // Guarded for the server-rendering pass, where sessionStorage does not exist.
   const key =
