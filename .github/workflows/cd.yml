@@ -1,8 +1,10 @@
 name: CD — Build ECR & Deploy ECS
 
+# master is the release branch: nothing reaches production except by merging
+# main into it, so a push here is exactly one deploy-worthy event.
 on:
   push:
-    branches: [main, master]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
