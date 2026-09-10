@@ -14,9 +14,17 @@ dependencies = [
   "langchain-community>=0.3.0",
   "langchain-text-splitters>=0.3.0",
   "langgraph>=0.2.0",
+  # The Postgres checkpointer is a separate distribution from langgraph itself.
+  # Undeclared, it was present on developer machines and absent from the image,
+  # so build_checkpointer caught the ImportError and multi-turn memory was
+  # silently off in the one place it mattered.
+  "langgraph-checkpoint-postgres>=2.0.0",
   "openai>=1.40.0",
   "sqlalchemy>=2.0.30",
-  "psycopg[binary]>=3.2.0",
+  # The `pool` extra, not just `binary`: threads.py owns an explicit
+  # ConnectionPool so the checkpointer's connection outlives the call that
+  # created it, and that lives in the separate psycopg-pool distribution.
+  "psycopg[binary,pool]>=3.2.0",
   "alembic>=1.13.0",
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.30.0",
@@ -57,6 +65,44 @@ finance-rag = "finance_rag.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+# Not --strict. The value here is catching real type confusion in our own code,
+# not annotating every helper, and a gate nobody can pass gets switched off.
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+# Third-party packages that ship no stubs. Without this every import of them is
+# an error about the library rather than about us, which drowns the findings
+# that matter.
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*", "cohere.*", "langchain.*", "langchain_community.*", "pdfplumber.*", "prometheus_client.*"]
+ignore_missing_imports = true
+
+# Modules that predate the gate, with a count each so the debt is visible and
+# shrinkable. These are excluded, not silenced globally: every other module is
+# checked, so a new file or a regression in a clean one fails CI.
+#
+# Most are third-party interface friction rather than latent bugs -- the openai
+# client's **kwargs overloads, redis returning `bytes | str` without
+# decode_responses, langchain's union-typed message content. Fixing them means
+# changing how we call those libraries, which is worth doing deliberately rather
+# than in the change that turned the gate on.
+[[tool.mypy.overrides]]
+module = [
+  "finance_rag.embeddings.openai_embeddings",   # 9  openai **kwargs overloads
+  "finance_rag.cache.semantic_cache",           # 5  redis bytes | str
+  "finance_rag.monitoring.metrics_emit",        # 4  boto3 cloudwatch shapes
+  "finance_rag.agent.graph",                    # 4  langchain union content
+  "finance_rag.storage.object_store",           # 2
+  "finance_rag.agent.orchestrator",             # 2
+  "finance_rag.store.pgvector_store",           # 1
+  "finance_rag.pipeline.launcher",              # 1  boto3
+]
+ignore_errors = true
 
 [tool.ruff]
 line-length = 100

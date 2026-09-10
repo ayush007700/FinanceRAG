@@ -23,6 +23,17 @@ terraform/*.tfstate*
 terraform/*.tfvars
 !terraform/*.tfvars.example
 infra/terraform/.terraform/
+# Any depth, not just the two roots above: `terraform init` in a nested module
+# (bootstrap/) downloads provider binaries that are hundreds of MB and exceed
+# GitHub's 100 MB file limit. The .terraform.lock.hcl beside them is different
+# and stays tracked -- it is the provider version pin.
+**/.terraform/
+# Same reason at any depth: state holds every `sensitive` value in plaintext,
+# and tfvars holds the secrets that produce them.
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
 infra/terraform/*.tfstate*
 infra/terraform/*.tfvars
 !infra/terraform/*.tfvars.example

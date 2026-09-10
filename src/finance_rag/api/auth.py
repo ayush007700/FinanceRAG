@@ -202,10 +202,15 @@ def authenticate(
 
 
 def require(*scopes: str) -> Callable[..., Principal]:
-    """Dependency factory: authenticate, then demand every named scope.
+    """Dependency factory: authenticate, demand every named scope, then rate limit.
 
     403 rather than 401 on a scope failure: the credential is valid and retrying
     with different credentials of the same kind will not help.
+
+    Rate limiting happens here rather than in middleware because the limit
+    depends on the *scope the route demands*, which only the route knows. It
+    runs after the scope check so that a forbidden request is not also counted
+    against a limit it was never going to consume.
     """
     needed = frozenset(scopes)
 
@@ -222,6 +227,11 @@ def require(*scopes: str) -> Callable[..., Principal]:
                 status_code=403,
                 detail=f"credential lacks scope: {', '.join(sorted(missing))}",
             )
+        # Imported here to keep the auth module importable without the limiter,
+        # which the test suite relies on when exercising parsing alone.
+        from finance_rag.api.ratelimit import enforce
+
+        enforce(principal.key_id, principal.org_id, needed)
         return principal
 
     return dependency

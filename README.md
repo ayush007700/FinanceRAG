@@ -140,6 +140,33 @@ Keys are configured as `AUTH_API_KEYS`, comma-separated:
 key_id:org_id:scopes:secret
 ```
 
+### Rate limiting
+
+Authentication says *who* is spending; it does not bound *how much*. Limits are
+per credential and per scope, because the scopes differ in what they cost:
+
+| scope | default | why |
+|---|---|---|
+| `ask` | 30 / min | every call spends model budget |
+| `index` | 5 / hour | launches a 2 vCPU task and rewrites the corpus |
+| `read` | 120 / min | touches rows that already exist |
+
+Counters live in Redis when it is configured, because the service autoscales —
+per-process counters would give each task its own limit, so scaling out would
+*raise* the effective limit rather than hold it. Without Redis the limiter falls
+back to per-process counters and says so in the logs. A limiter fault fails
+open: refusing traffic because the counter store is unreachable turns a cost
+control into an outage.
+
+Over-limit responses are `429` with `Retry-After`, which is what makes them
+actionable — a client without it can only guess, and guessing clients retry
+immediately.
+
+Set `RATE_LIMIT_ENABLED=false` to disable, or `RATE_LIMIT_ASK` /
+`RATE_LIMIT_INDEX` / `RATE_LIMIT_READ` to tune.
+
+---
+
 Scopes are `|`-separated from `ask`, `index`, `read`, or `*` for all three; they
 split by consequence rather than by endpoint, so the eval harness can hold a key
 that spends model budget without one that can rewrite the corpus. **The org is a
@@ -257,9 +284,12 @@ schema in RDS, no documents indexed. Four steps, in order, each depending on the
 one before:
 
 ```
-apply  ──▶  update GitHub config  ──▶  push  ──▶  index
- 15 min          5 min                 8 min      5 min
+apply  ──▶  update GitHub config  ──▶  push ──▶ merge to master  ──▶  index
+ 15 min          5 min                 CI          8 min (CD)          5 min
 ```
+
+`main` runs CI; `master` deploys. Pushing to `main` never reaches production —
+merging `main` into `master` is what triggers CD.
 
 ```bash
 cd infra/terraform
@@ -340,7 +370,7 @@ cd web && npm install && npm run dev     # local, against API on :8000
 | [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 32 war stories with real numbers |
 | [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, IAM identities, Terraform patterns, CI/CD bootstrap, UI hosting |
 | [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion                                                     |
-| [`docs/TERRAFORM_AND_CICD.md`](docs/TERRAFORM_AND_CICD.md)   | ⚠️ **stale** — written for the removed Neo4j Aura deployment                                              |
+| [`docs/INTERVIEW_QA.md`](docs/INTERVIEW_QA.md)               | Trade-offs and scenarios, worked through with answers — what each decision cost, and six incidents from this repo |
 
 ## Project layout
 
@@ -365,13 +395,14 @@ web/             Next.js UI
 
 ## Known gaps
 
-- **The browser UI cannot hold a key.** The API is authenticated; the static
-  export that calls it is not, because `NEXT_PUBLIC_*` is inlined into a public
-  bundle — a key put there is a published key. The client sends whatever token
-  is in `sessionStorage` under `finance_rag_api_key`, so an operator can supply
-  their own, but a shared deployment needs either a key-entry control or an
-  authenticating proxy in front of the API. Machine clients (CI, the eval
-  harness) are unaffected.
+- **The UI's key is per tab, not per user.** The static export cannot carry a
+  credential — `NEXT_PUBLIC_*` is inlined into a bundle any visitor can read, so
+  a key put there is a published key. The operator pastes one into the header
+  field instead; it lives in `sessionStorage` under `finance_rag_api_key` and is
+  sent as a bearer token. That authenticates the browser, but it does not
+  identify the person: everyone sharing the deployment shares whatever key they
+  are handed. Per-user identity needs an authenticating proxy or an IdP.
+  Machine clients (CI, the eval harness) are unaffected.
 - **Key rotation is a redeploy.** Keys live in one SSM parameter read at task
   start, so revoking one means updating the parameter and restarting the
   service. Fine at this scale; a key table in Postgres is the move when it isn't.

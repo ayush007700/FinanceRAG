@@ -47,10 +47,38 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # The image installs from requirements.lock, so a lock that has drifted
+      # from pyproject.toml builds something the tests never ran against.
+      #
+      # Seeded with the current lock on purpose. pip-compile honours the pins in
+      # an existing output file and changes only what pyproject.toml forces, so
+      # this asks "does the lock still satisfy the declared dependencies?" --
+      # not "has anything on PyPI released since?". Compiling into an empty file
+      # resolves everything to newest and fails whenever any of 120 transitive
+      # dependencies ships a release, which is roughly daily.
+      #
+      # Compares pins only. The "# via" annotations are derived provenance, not
+      # part of the installed set, and they reflow between equivalent forms --
+      # a single-line `# via x` becomes a three-line block the moment a second
+      # dependent appears. Diffing them fails the build on cosmetics.
+      - name: Check the lock is in sync with pyproject
+        run: |
+          pip install pip-tools
+          cp requirements.lock /tmp/check.lock
+          pip-compile --quiet --strip-extras --output-file=/tmp/check.lock pyproject.toml
+          pins() { grep -E '^[a-zA-Z0-9._-]+==' "$1" | sort; }
+          diff <(pins requirements.lock) <(pins /tmp/check.lock) || { echo "::error::requirements.lock is stale; regenerate with: pip-compile --strip-extras --output-file=requirements.lock pyproject.toml"; exit 1; }
+
       # No "|| true": lint failures fail the build. The codebase is clean, and a
       # gate that cannot fail is not a gate.
       - name: Ruff
         run: ruff check src tests scripts migrations
+
+      # Same rule as ruff: no "|| true". Modules that predate the gate are
+      # listed in pyproject's mypy overrides with their error counts, so the
+      # debt is visible rather than hidden behind a step that cannot fail.
+      - name: Mypy
+        run: mypy
 
       - name: Apply migrations
         run: alembic upgrade head

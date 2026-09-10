@@ -187,12 +187,26 @@ bills per call should crash-loop rather than serve traffic it cannot attribute.
 
 ### Known gaps
 
-- **The browser UI cannot hold a key** — the static export inlines
-  `NEXT_PUBLIC_*` into a public bundle. Machine clients are unaffected; a shared
-  UI deployment needs a key-entry control or an authenticating proxy.
-- **Key rotation is a redeploy.** One SSM parameter, read at task start.
-- **No WAF.** Worth adding before public exposure.
-- **CD does not run migrations** — see §6.
+- **The UI holds its key per tab, not per user.** The static export still
+  cannot carry a credential — `NEXT_PUBLIC_*` is inlined into a bundle any
+  visitor can read — so the operator now pastes a key into a header field and it
+  lives in `sessionStorage` for that tab only. That is a key-entry control, not
+  identity: everyone sharing the deployment shares whatever key they are given.
+  Per-user identity still needs an authenticating proxy or an IdP.
+- **Key rotation is a redeploy.** One SSM parameter, read at task start. ECS
+  injects it when the container starts, so updating the parameter changes
+  nothing until a new task replaces the running one.
+- **Tracing is configured but not collected.** OpenTelemetry is wired into the
+  lifespan and instruments FastAPI, but exports only when
+  `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and no collector is deployed. LangSmith
+  and Langfuse trace the agent; Prometheus counts requests; neither shows where
+  wall-clock time went inside one request.
+- **No WAF.** Worth adding before public exposure. Rate limiting is per
+  credential and in-process of the API; a WAF would add per-IP limiting in front
+  of it, which is the layer that stops unauthenticated floods reaching the ALB.
+- **`/metrics` is unauthenticated.** Prometheus output is reachable by anyone
+  who can reach the API. It exposes request rates and latencies, not answers,
+  but it is the one route with no credential check.
 
 ---
 
@@ -219,18 +233,29 @@ you cannot use `count` for that.
 
 ### Remote state
 
-```hcl
-backend "s3" {
-  bucket       = "source-advisors-finance-rag-tfstate"
-  key          = "finance-rag/terraform.tfstate"
-  region       = "ap-south-1"
-  encrypt      = true
-  use_lockfile = true      # S3 native locking; no DynamoDB table needed
-}
+State is in S3 with `use_lockfile` (S3 conditional-write locking, Terraform
+1.10+). No DynamoDB table: the lock is a conditional PUT on an object beside the
+state, which is one less resource to provision and pay for.
+
+The bucket cannot live in the stack it holds the state for, so `bootstrap/` is a
+separate root module with local state that creates only the bucket -- versioned,
+encrypted, public access blocked, HTTPS-only by bucket policy, with
+`prevent_destroy` and a 90-day expiry on old versions.
+
+```bash
+cd infra/terraform/bootstrap && terraform init && terraform apply   # once
+cd ..                        && terraform init -migrate-state
 ```
 
-Local state means no locking, no history, and a stack only one person can safely
-change. `use_lockfile` is the modern replacement for the DynamoDB lock table.
+Bootstrap's own state is disposable: everything in it is trivially re-importable,
+so losing that file costs an import rather than an outage. That asymmetry is why
+one module keeping local state is acceptable while the stack that matters is not.
+
+**Why it matters before a second person joins:** without locking, two applies
+interleave and the loser's resources are orphaned -- created in AWS, absent from
+state. Versioning is the other half: a partial write leaves no earlier copy to
+roll back to unless the bucket keeps one.
+
 
 ### `ignore_changes` on the ECS service
 
@@ -254,9 +279,20 @@ owns what's running in it."*
 
 | workflow | trigger | does |
 |---|---|---|
-| `ci.yml` | every push / PR | ruff + full test suite against a pgvector service container |
-| `cd.yml` | push to `main` | build → ECR → render task def → ECS rolling deploy |
+| `ci.yml` | push to `main`, PRs into `main` or `master` | ruff + full test suite against a pgvector service container |
+| `cd.yml` | push to `master` | build → ECR → migrate → render task def → ECS rolling deploy |
 | `eval.yml` | manual + weekly | golden-set eval with a regression gate |
+
+### Why two branches
+
+`main` is the integration branch and `master` the release branch. CD once fired
+on every push to `main`, which made deploying indistinguishable from saving
+work: any commit built an image, ran migrations and rolled the service.
+
+Reaching production now takes an explicit merge, and because CI also runs on PRs
+into `master`, the release is tested against the *merge result* rather than only
+against `main` beforehand. A branch ruleset on `master` requiring a PR plus the
+`Lint & Test` check is what stops a direct push from bypassing both.
 
 ### CI runs a real database
 
@@ -268,6 +304,28 @@ services:
 
 So the store integration tests **execute** rather than skip. Tests that skip in
 CI are tests you do not have.
+
+### Three gates, none of them decorative
+
+`ruff check src tests scripts migrations`, `mypy`, and a lock-drift check. None
+carry `|| true`.
+
+**mypy** was a dev dependency that never ran, which is the same failure mode as
+an exported function nobody calls: present, believed, doing nothing. Turning it
+on found 29 errors across 8 modules. Rather than `|| true` or a weekend of
+annotation, those modules are listed in `[tool.mypy]` overrides **with their
+error counts**, so the debt is visible and shrinkable while every other module
+is genuinely checked — a new file or a regression in a clean module fails CI.
+
+Most of the 29 are third-party interface friction rather than latent bugs: the
+openai client's `**kwargs` overloads, redis returning `bytes | str` without
+`decode_responses`, langchain's union-typed message content. Fixing them means
+changing how those libraries are called, which is worth doing deliberately
+rather than inside the change that turned the gate on.
+
+**Lock drift** re-resolves `pyproject.toml` and diffs it against
+`requirements.lock`. The image installs from the lock, so a stale lock builds
+something the tests never ran against.
 
 ### The lint gate is real
 
@@ -281,18 +339,23 @@ build. **A gate that cannot fail is not a gate.**
    service that must already exist.
 2. **Add GitHub secrets** from `terraform output`:
    `github_actions_access_key_id` and `github_actions_secret_access_key`.
-3. **Push to `main`** → CD builds, pushes, and rolls with
-   `wait-for-service-stability`.
+3. **Push to `main`** → CI. Then merge `main` into `master` → CD builds,
+   pushes, and rolls with `wait-for-service-stability`.
 
-### Gap: migrations
+### Migrations
 
-CD deploys code but does not run `alembic upgrade head`. A deploy shipping code
-that expects tables which don't exist is a broken deploy. Two options:
+A deploy shipping code that expects tables which don't exist is a broken deploy,
+so CD runs `alembic upgrade head` before the ECS rolling update. Two options
+were open:
 
-- **A migration step in CD** before the ECS deploy (simple; races if two deploys
-  overlap)
-- **A one-shot ECS task** running migrations, which the deploy waits on
-  (correct; more moving parts)
+- **A migration step on the runner** before the deploy — simple, but RDS is
+  private and unreachable from a GitHub runner, so it cannot work here
+- **A one-shot ECS task** the deploy waits on — more moving parts, and what
+  `cd.yml` does
+
+The task runs in the same subnets and security groups as the service, resolved
+from the running service rather than hardcoded. A non-zero exit fails the job,
+so the deploy stops instead of shipping code against a mismatched schema.
 
 The local `docker-compose` already models the right pattern — a separate
 `migrate` service the API depends on — kept out of the API container precisely
@@ -362,7 +425,10 @@ before the response returns.
 ### A deploy, from push to running
 
 ```
-git push main
+git push origin main ──▶ CI only
+  │
+  ▼
+merge main ──▶ master
   │
   ▼
 CI            ruff + 238 tests against a pgvector service container
@@ -454,4 +520,4 @@ start reaps anything a killed worker abandoned.
 ## 9. Related
 
 - [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md) — architecture, agents, evaluation, war stories
-- [`TERRAFORM_AND_CICD.md`](TERRAFORM_AND_CICD.md) — *(stale: written for the Neo4j Aura deployment)*
+- [`INTERVIEW_QA.md`](INTERVIEW_QA.md) — the trade-offs above, worked through with answers

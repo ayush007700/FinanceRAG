@@ -51,6 +51,14 @@ async def lifespan(_: FastAPI):
     that cannot authenticate callers must not go on to serve them.
     """
     verify_auth_configuration()
+
+    # After the auth check, before serving: a task that will refuse to start
+    # should not first stand up an exporter, and instrumenting the app has to
+    # happen before the first request reaches it.
+    from finance_rag.tracing import setup_tracing
+
+    setup_tracing(app)
+
     try:
         from finance_rag.pipeline.jobs import reap_stale_jobs
 
