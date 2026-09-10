@@ -160,7 +160,10 @@ langgraph==1.2.11
 langgraph-checkpoint==4.2.0
     # via
     #   langgraph
+    #   langgraph-checkpoint-postgres
     #   langgraph-prebuilt
+langgraph-checkpoint-postgres==3.1.2
+    # via finance-rag (pyproject.toml)
 langgraph-prebuilt==1.1.0
     # via langgraph
 langgraph-sdk==0.4.4
@@ -241,6 +244,7 @@ opentelemetry-util-http==0.65b0
     #   opentelemetry-instrumentation-fastapi
 orjson==3.12.0
     # via
+    #   langgraph-checkpoint-postgres
     #   langgraph-sdk
     #   langsmith
 ormsgpack==1.12.2
@@ -271,9 +275,15 @@ protobuf==7.36.1
     #   googleapis-common-protos
     #   opentelemetry-proto
 psycopg==3.3.5
-    # via finance-rag (pyproject.toml)
+    # via
+    #   finance-rag (pyproject.toml)
+    #   langgraph-checkpoint-postgres
 psycopg-binary==3.3.5
     # via psycopg
+psycopg-pool==3.3.1
+    # via
+    #   langgraph-checkpoint-postgres
+    #   psycopg
 pycparser==3.0
     # via cffi
 pydantic==2.13.5
@@ -391,6 +401,7 @@ typing-extensions==4.16.0
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   psycopg
+    #   psycopg-pool
     #   pydantic
     #   pydantic-core
     #   sqlalchemy
