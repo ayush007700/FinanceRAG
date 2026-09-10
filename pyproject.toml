@@ -14,9 +14,17 @@ dependencies = [
   "langchain-community>=0.3.0",
   "langchain-text-splitters>=0.3.0",
   "langgraph>=0.2.0",
+  # The Postgres checkpointer is a separate distribution from langgraph itself.
+  # Undeclared, it was present on developer machines and absent from the image,
+  # so build_checkpointer caught the ImportError and multi-turn memory was
+  # silently off in the one place it mattered.
+  "langgraph-checkpoint-postgres>=2.0.0",
   "openai>=1.40.0",
   "sqlalchemy>=2.0.30",
-  "psycopg[binary]>=3.2.0",
+  # The `pool` extra, not just `binary`: threads.py owns an explicit
+  # ConnectionPool so the checkpointer's connection outlives the call that
+  # created it, and that lives in the separate psycopg-pool distribution.
+  "psycopg[binary,pool]>=3.2.0",
   "alembic>=1.13.0",
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.30.0",
