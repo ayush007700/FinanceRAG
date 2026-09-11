@@ -254,3 +254,43 @@
 .keyBar button {
   flex: 0 0 auto;
 }
+
+/* The sign-in gate: one centred card, nothing else on the page. The dashboard
+   layout is not reused because a sign-in screen with an empty dashboard
+   behind it reads as a broken dashboard, not as a front door. */
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+}
+
+.gateCard {
+  width: 100%;
+  max-width: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.gateButton {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+}
+
+.gateAlt {
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+
+.gateAlt summary {
+  cursor: pointer;
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 0.9rem;
+}
+
+.gateAlt .keyBar {
+  margin-top: 0.75rem;
+}

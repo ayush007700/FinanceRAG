@@ -281,11 +281,36 @@ aws cognito-idp admin-add-user-to-group --user-pool-id "$POOL" --username you@ex
 aws cognito-idp admin-add-user-to-group --user-pool-id "$POOL" --username you@example.com --group-name read
 ```
 
-Cognito emails a temporary password. First sign-in prompts for a new one.
+The same from PowerShell (`` ` `` for continuation, not `\`):
+
+```powershell
+$POOL  = terraform output -raw cognito_user_pool_id
+$EMAIL = "you@example.com"
+
+aws cognito-idp admin-create-user `
+  --user-pool-id $POOL --username $EMAIL `
+  --user-attributes Name=email,Value=$EMAIL Name=email_verified,Value=true Name=custom:org_id,Value=default
+
+aws cognito-idp admin-add-user-to-group --user-pool-id $POOL --username $EMAIL --group-name ask
+aws cognito-idp admin-add-user-to-group --user-pool-id $POOL --username $EMAIL --group-name read
+
+# Confirm: groups and tenant
+aws cognito-idp admin-list-groups-for-user --user-pool-id $POOL --username $EMAIL --query "Groups[].GroupName"
+```
+
+Cognito emails a temporary password from `no-reply@verificationemail.com`. It
+lands in spam more often than not; look there first. The user's status stays
+`FORCE_CHANGE_PASSWORD` until first sign-in, which prompts for a new one.
 
 **Without `custom:org_id` the login succeeds and the API rejects the token** —
 "token carries no tenant". That is deliberate: an unattributable person landing
 in the default tenant is exactly what the tenancy column exists to prevent.
+
+**What the user sees.** With OIDC configured, the UI's front door is a sign-in
+screen; the dashboard is behind it. **Sign in** → Cognito's hosted page (email,
+temporary password, then a new password) → back to the dashboard with the
+badge reading *Signed in: you@example.com*. An operator without an account
+can expand *Have an API key instead?* on the same screen.
 
 ### 5d. Verify
 
@@ -304,6 +329,78 @@ whole point of the step.
 Skip 5a. Set `auth_jwt` in tfvars with your issuer's JWKS URL, issuer,
 audience and claim names, and the four `OIDC_*` variables from your provider.
 An explicit `auth_jwt` always wins over Cognito.
+
+---
+
+## Metrics and logs
+
+CloudWatch is the source of truth in AWS. Prometheus exists for local
+`docker compose` and is inert in the deployment — nothing scrapes it.
+
+### Logs
+
+Everything the container writes to stdout goes to one log group through the
+ECS `awslogs` driver. Structured JSON, one event per line.
+
+```bash
+export MSYS_NO_PATHCONV=1     # Git Bash mangles the leading slash otherwise
+aws logs tail /ecs/source-advisors-finance-rag --since 30m --follow
+
+# Everything except health checks
+aws logs filter-log-events --log-group-name /ecs/source-advisors-finance-rag \
+  --start-time $(( $(date +%s) - 1800 ))000 --filter-pattern '-"GET /health"' \
+  --query "events[].message" --output text
+```
+
+Console: **CloudWatch → Log groups → `/ecs/source-advisors-finance-rag`**, then
+*Logs Insights* for queries across time:
+
+```
+fields @timestamp, event, latency_ms, route
+| filter event = "ask_completed"
+| stats avg(latency_ms), pct(latency_ms, 95) by bin(5m)
+```
+
+### Metrics
+
+Three sources, all in CloudWatch:
+
+| namespace | what | who emits it |
+|---|---|---|
+| `AWS/ECS`, `AWS/ApplicationELB` | CPU, memory, 5xx, target response time | AWS, automatically |
+| `ECS/ContainerInsights` | per-task CPU and memory | Container Insights |
+| **`FinanceRAG/SourceAdvisors`** | `RequestLatencyMs`, `Requests`, `TopCosine`, `HallucinatedCitations`, `Refusals` | the app, one `PutMetricData` per request |
+
+The last row is the one that says whether the *answers* are good, not just
+whether the service is up. `TopCosine` dropping means retrieval is finding
+less; `Refusals` rising means the answerability gate is saying no more often;
+`HallucinatedCitations` above zero means the citation check caught something.
+
+```bash
+aws cloudwatch get-metric-statistics --namespace FinanceRAG/SourceAdvisors \
+  --metric-name RequestLatencyMs --dimensions Name=Endpoint,Value=ask Name=Status,Value=ok \
+  --start-time $(date -u -d '-1 hour' +%FT%TZ) --end-time $(date -u +%FT%TZ) \
+  --period 300 --statistics Average p95
+```
+
+Console: **CloudWatch → Metrics → All metrics → `FinanceRAG/SourceAdvisors`**.
+The dashboard (`terraform output -raw cloudwatch_dashboard`) has these
+alongside the ECS and ALB panels.
+
+### Alarms
+
+Three, all publishing to the SNS topic your `alarm_email` subscribes to:
+ALB 5xx rate, ECS CPU, and `RequestLatencyMs` p95. Confirm the SNS
+subscription from the email AWS sends after the first apply, or the alarms
+fire into nothing.
+
+### What `/metrics` is for
+
+The API exposes Prometheus text at `/metrics`, behind the `metrics` scope. In
+AWS nothing scrapes it: the same five signals are pushed to CloudWatch, which
+is what the dashboard and alarms read. `/metrics` and `infra/prometheus/` are
+for running Prometheus locally against `docker compose`. Grafana is not part
+of this stack; CloudWatch's dashboard is the viewer.
 
 ---
 
