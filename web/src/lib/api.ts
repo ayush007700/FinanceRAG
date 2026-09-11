@@ -40,13 +40,27 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // inlined into a bundle any visitor can read, and a published key is not a key.
 // The operator supplies their own instead, which stays in this tab only.
 const API_KEY_STORAGE = "finance_rag_api_key";
+// Which kind of credential is in the slot. An OIDC token expires and must be
+// cleared when its session ends; a pasted key does not, and clearing it under
+// an operator would look like the site forgetting them. The slot itself
+// cannot tell the two apart, so the kind is stored beside it.
+const API_KEY_KIND = "finance_rag_api_key_kind";
 
-export function setApiKey(key: string): void {
+export type CredentialKind = "api_key" | "oidc";
+
+export function setApiKey(key: string, kind: CredentialKind = "api_key"): void {
   sessionStorage.setItem(API_KEY_STORAGE, key);
+  sessionStorage.setItem(API_KEY_KIND, kind);
 }
 
 export function clearApiKey(): void {
   sessionStorage.removeItem(API_KEY_STORAGE);
+  sessionStorage.removeItem(API_KEY_KIND);
+}
+
+export function apiKeyKind(): CredentialKind | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(API_KEY_KIND) as CredentialKind | null;
 }
 
 // Whether a key is present, not the key itself: the UI only needs to render
