@@ -204,6 +204,29 @@ exception is Cognito, whose access tokens carry `client_id` instead of `aud`;
 there the ID token is the pragmatic choice, and the workaround is named in the
 config rather than hidden in code.
 
+### A scanner says SHA-256 is too weak for your API keys. Is it right?
+
+**Right about the pattern, wrong about the threat.** The rule exists because
+a fast hash lets whoever steals the digest table brute-force *passwords*
+offline; bcrypt and argon2 are slow on purpose to price that out. That
+defence matters when the input has tens of bits of entropy.
+
+**These inputs have ~240.** Forty characters from a 64-symbol alphabet. No
+hash speed makes that enumerable, so the slow KDF buys nothing -- and costs
+~100 ms on every authenticated request, which turns the auth gate into a
+denial-of-service lever. GitHub and Stripe store SHA-256 of their tokens for
+exactly this reason.
+
+**The answer that lands:** name the threat the rule is for, show it does not
+apply, name what the "fix" would cost, then suppress *with the reason
+attached* rather than dismiss. A suppression that says why is a decision; one
+that does not is a finding somebody hid.
+
+**The follow-up:** *"What if someone sets a weak secret by hand?"* Then the
+premise fails and bcrypt would help -- which is why the runbook's generator
+is the documented way to make one, and why a length floor at parse time would
+be the next step if that ever became a real risk.
+
 ### Why does `/metrics` need its own scope rather than `read`?
 
 Scopes are split by consequence. `read` exposes other people's questions;
