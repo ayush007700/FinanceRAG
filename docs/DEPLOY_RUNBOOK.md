@@ -27,7 +27,7 @@ cohere_api_key = "..."                 # empty disables reranking
 db_password    = "..."                 # RDS master password
 
 # API credentials: key_id:org_id:scopes:secret, comma-separated.
-# Scopes are |-separated from ask, index, read, or * for all.
+# Scopes are |-separated from ask, index, read, metrics, or * for all.
 auth_api_keys = "demo:default:*:<40-char-secret>"
 auth_enabled  = true
 

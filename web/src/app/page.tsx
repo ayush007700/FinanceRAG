@@ -12,6 +12,7 @@ import {
   setApiKey,
   uploadFile,
 } from "@/lib/api";
+import { SignedIn, oidcEnabled, resume, signIn, signOut } from "@/lib/oidc";
 import styles from "./page.module.css";
 
 const EXAMPLES = [
@@ -32,11 +33,23 @@ export default function HomePage() {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [keySet, setKeySet] = useState(false);
+  const [user, setUser] = useState<SignedIn | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   // sessionStorage is unavailable during the static export's prerender, so the
-  // first paint has to assume no key and correct itself once mounted.
+  // first paint has to assume no key and correct itself once mounted. The OIDC
+  // resume runs in the same effect: if this load is the provider redirecting
+  // back, it completes the login and stores the token where the key would go.
   useEffect(() => {
-    setKeySet(hasApiKey());
+    resume()
+      .then((who) => {
+        setUser(who);
+        setKeySet(hasApiKey());
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Sign-in failed");
+        setKeySet(hasApiKey());
+      });
   }, []);
 
   useEffect(() => {
@@ -68,6 +81,23 @@ export default function HomePage() {
     clearApiKey();
     setKeySet(false);
     setStatusMsg("API key cleared.");
+  }
+
+  async function onSignIn() {
+    setSigningIn(true);
+    setError(null);
+    try {
+      await signIn(); // navigates away; nothing runs after this on success
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setSigningIn(false);
+    }
+  }
+
+  async function onSignOut() {
+    setUser(null);
+    setKeySet(false);
+    await signOut(); // navigates away when the provider supports end_session
   }
 
   async function onAsk(e: FormEvent) {
@@ -137,20 +167,50 @@ export default function HomePage() {
             <span className={styles.badge}>LangSmith</span>
           ) : null}
           <span className={keySet ? styles.badgeOk : styles.badgeDown}>
-            {keySet ? "API key set" : "No API key"}
+            {user ? `Signed in: ${user.name}` : keySet ? "API key set" : "Not authenticated"}
           </span>
         </div>
+
+        {/* Two ways in, one header. People sign in through the identity
+            provider and the API attributes their questions to them; machines
+            and operators without an IdP paste a key. Both land in the same
+            sessionStorage slot and the same Authorization header. */}
+        {oidcEnabled ? (
+          <div className={styles.keyBar}>
+            {user ? (
+              <button type="button" className={styles.secondary} onClick={onSignOut}>
+                Sign out
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={styles.primary}
+                onClick={onSignIn}
+                disabled={signingIn}
+              >
+                {signingIn ? "Redirecting…" : "Sign in"}
+              </button>
+            )}
+          </div>
+        ) : null}
 
         {/* Every /v1 route needs a bearer credential, and the key cannot ship
             in the bundle -- a static export is readable by any visitor. Before
             this, setApiKey was exported but never called, so the only way to
             authenticate was to set sessionStorage by hand in devtools. */}
+        {user ? null : (
         <form onSubmit={onSaveKey} className={styles.keyBar}>
           <input
             type="password"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={keySet ? "Replace API key…" : "Paste your API key"}
+            placeholder={
+              keySet
+                ? "Replace API key…"
+                : oidcEnabled
+                  ? "…or paste an API key"
+                  : "Paste your API key"
+            }
             aria-label="API key"
             autoComplete="off"
             spellCheck={false}
@@ -164,9 +224,11 @@ export default function HomePage() {
             </button>
           ) : null}
         </form>
+        )}
         <p className={styles.muted}>
-          Stored in this tab only (sessionStorage) and sent as a bearer token. It
-          is never written to the bundle or shared with another tab.
+          {user
+            ? "Your session token is held in this tab only and sent as a bearer token. Questions are attributed to you in the audit trail."
+            : "Stored in this tab only (sessionStorage) and sent as a bearer token. It is never written to the bundle or shared with another tab."}
         </p>
       </header>
 

@@ -48,15 +48,21 @@ class Scope:
     """What a credential is allowed to do.
 
     Split by consequence rather than by endpoint: ``ask`` spends money, ``index``
-    mutates the corpus, ``read`` exposes other people's questions. A key issued
-    to the eval harness needs the first and not the second.
+    mutates the corpus, ``read`` exposes other people's questions, ``metrics``
+    exposes traffic shape. A key issued to the eval harness needs the first and
+    not the second; one issued to Prometheus needs the last and nothing else.
     """
 
     ASK: Final = "ask"
     INDEX: Final = "index"
     READ: Final = "read"
+    # Its own scope rather than a use of `read`, by the same consequence
+    # reasoning: `read` exposes other people's questions, `metrics` exposes
+    # request rates and latencies. A scrape credential should hold the second
+    # without the first.
+    METRICS: Final = "metrics"
 
-    ALL: Final = frozenset({ASK, INDEX, READ})
+    ALL: Final = frozenset({ASK, INDEX, READ, METRICS})
     WILDCARD: Final = "*"
 
 

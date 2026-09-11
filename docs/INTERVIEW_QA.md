@@ -175,6 +175,47 @@ ever writing it — the schema was ahead of the code.
 and a proxy are not people, and forcing a machine through an OIDC flow to get a
 token with a `sub` of `svc-ci` is ceremony that buys nothing.
 
+### Why PKCE in the browser, and why is the client id public?
+
+**The constraint:** a static export has no server, so there is nowhere to hold
+a client secret. Every OAuth flow that needs one is ruled out before the design
+starts.
+
+**PKCE is the flow built for this.** The client generates a random verifier,
+sends its hash with the authorization request, and presents the verifier when
+exchanging the code. An attacker who intercepts the code cannot redeem it
+without the verifier, which never left the tab. That replaces the secret with a
+proof of possession -- which is why the client id can be public: it identifies
+the application, it does not authenticate it.
+
+**Two decisions worth naming:**
+
+- *The callback is the page itself.* A dedicated `/callback` route on S3 needs
+  its own `index.html` and a rewrite rule. Landing on `/` and reading the
+  query works on every static host, and the code is stripped from the URL
+  before it reaches history or a referrer log.
+- *Silent renew is off.* It depends on third-party-cookie behaviour browsers
+  are removing. The user signs in again when the token expires, which at a
+  one-hour lifetime is the honest trade.
+
+**The follow-up:** *"Why not send the ID token?"* Because the ID token is
+minted for the client, the access token for the API -- `aud` says so. The
+exception is Cognito, whose access tokens carry `client_id` instead of `aud`;
+there the ID token is the pragmatic choice, and the workaround is named in the
+config rather than hidden in code.
+
+### Why does `/metrics` need its own scope rather than `read`?
+
+Scopes are split by consequence. `read` exposes other people's questions;
+`metrics` exposes request rates and latencies. Neither implies the other, and a
+Prometheus scraper holding `read` can dump the audit trail. So a fourth scope,
+and a scrape credential that holds only it.
+
+The route was the one on the service with no credential check -- reachable
+through CloudFront by anyone. Traffic shape is not user data, but it is
+reconnaissance, and "everything except this one" is the sentence that ends up
+in an incident report.
+
 ### How do you rate limit a service that autoscales?
 
 **The trap:** an in-process counter. With N tasks behind an ALB, each task

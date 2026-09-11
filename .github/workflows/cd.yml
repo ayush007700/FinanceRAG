@@ -188,6 +188,14 @@ jobs:
           # Baked in at build time: NEXT_PUBLIC_* is inlined into the bundle,
           # so this cannot be changed without rebuilding.
           NEXT_PUBLIC_API_URL: ${{ vars.API_BASE_URL }}
+          # OIDC sign-in. All four are public by construction -- a browser
+          # doing the login must know them -- so they are variables, not
+          # secrets. Leave OIDC_ISSUER unset and the UI shows only the API key
+          # field.
+          NEXT_PUBLIC_OIDC_ISSUER: ${{ vars.OIDC_ISSUER }}
+          NEXT_PUBLIC_OIDC_CLIENT_ID: ${{ vars.OIDC_CLIENT_ID }}
+          NEXT_PUBLIC_OIDC_SCOPES: ${{ vars.OIDC_SCOPES }}
+          NEXT_PUBLIC_OIDC_TOKEN: ${{ vars.OIDC_TOKEN }}
         run: |
           npm ci
           npm run build

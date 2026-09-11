@@ -187,12 +187,12 @@ bills per call should crash-loop rather than serve traffic it cannot attribute.
 
 ### Known gaps
 
-- **The UI does not run the OIDC login flow.** The API validates OIDC tokens
-  against a JWKS and records the subject in the audit trail, so identity exists
-  at the API. The static UI still takes a pasted credential; a PKCE login in the
-  Next.js app is what remains. Set `auth_jwt` in tfvars to turn the token path
-  on — it rides as plain environment, since a JWKS URL, issuer and audience are
-  public by construction.
+- **No identity provider is provisioned.** The UI does PKCE against any OIDC
+  issuer and the API validates the tokens, but nothing in Terraform creates a
+  Cognito pool. Bring your own: `auth_jwt` in tfvars for the API, four
+  `OIDC_*` repository variables for the UI build. Both ride as plain
+  configuration, since a JWKS URL, issuer and public client id are public by
+  construction.
 - **Key rotation is a redeploy.** One SSM parameter, read at task start. ECS
   injects it when the container starts, so updating the parameter changes
   nothing until a new task replaces the running one.
@@ -204,9 +204,6 @@ bills per call should crash-loop rather than serve traffic it cannot attribute.
 - **No WAF.** Worth adding before public exposure. Rate limiting is per
   credential and in-process of the API; a WAF would add per-IP limiting in front
   of it, which is the layer that stops unauthenticated floods reaching the ALB.
-- **`/metrics` is unauthenticated.** Prometheus output is reachable by anyone
-  who can reach the API. It exposes request rates and latencies, not answers,
-  but it is the one route with no credential check.
 
 ---
 
@@ -255,7 +252,6 @@ one module keeping local state is acceptable while the stack that matters is not
 interleave and the loser's resources are orphaned -- created in AWS, absent from
 state. Versioning is the other half: a partial write leaves no earlier copy to
 roll back to unless the bucket keeps one.
-
 
 ### `ignore_changes` on the ECS service
 

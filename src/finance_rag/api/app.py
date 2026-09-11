@@ -471,7 +471,15 @@ def eval_runs(
 
 
 @app.get("/metrics")
-def prometheus_metrics() -> Response:
+def prometheus_metrics(principal: Principal = Depends(require(Scope.METRICS))) -> Response:
+    """Prometheus exposition.
+
+    Was the one route on the service with no credential check, reachable through
+    CloudFront by anyone. The output is request rates and latencies, not user
+    data -- but traffic shape is reconnaissance, and "everything except this
+    one" is the sentence that ends up in an incident report. Prometheus sends
+    the bearer through ``authorization.credentials_file`` in its scrape config.
+    """
     if not settings.enable_prometheus:
         raise HTTPException(status_code=404, detail="Prometheus disabled")
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
