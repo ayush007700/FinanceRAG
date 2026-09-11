@@ -1,12 +1,15 @@
 name: CI
 
-# Runs on every push to main and on PRs into either branch, including the
-# main -> master release PR. Deploys are cd.yml's job, not this one's.
+# PRs only. A push to main used to run this as well, which tested the same
+# commit twice the moment a release PR was opened: once as "the latest push"
+# and once as "the merge into master". The PR run is the one that matters --
+# it checks out the synthetic merge, which is what ships -- so it is the one
+# kept. The trade is that a direct push to main gets no feedback until a PR
+# names it. Deploys are cd.yml's job, not this one's.
 on:
   pull_request:
     branches: [main, master]
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
