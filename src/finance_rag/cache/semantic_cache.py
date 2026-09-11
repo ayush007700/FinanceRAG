@@ -36,7 +36,14 @@ def _hash_key(text: str, service_line: str | None, corpus_version: str) -> str:
 class SemanticCache:
     def __init__(self, embedder: EmbeddingService | None = None) -> None:
         self.settings = get_settings()
-        self.embedder = embedder or EmbeddingService()
+        # Built on first use, not here. Constructing the OpenAI client eagerly
+        # made this class raise when the key was absent -- and /health builds
+        # a SemanticCache to report whether the cache is on. A missing model
+        # credential therefore failed the health check, the ALB marked the
+        # task unhealthy, and ECS replaced it with one that failed the same
+        # way. The cache being reachable is a Redis question; the embedder is
+        # only needed once there is a query to embed.
+        self._embedder = embedder
         self._redis = None
         if self.settings.cache_enabled:
             try:
@@ -50,6 +57,12 @@ class SemanticCache:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("redis_unavailable", error=str(exc))
                 self._redis = None
+
+    @property
+    def embedder(self) -> EmbeddingService:
+        if self._embedder is None:
+            self._embedder = EmbeddingService()
+        return self._embedder
 
     @property
     def enabled(self) -> bool:

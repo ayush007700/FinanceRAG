@@ -245,7 +245,7 @@ nothing in `auth_jwt` needs copying.
 
 ### 5b. Tell the UI build about it
 
-Four repository **variables** — not secrets; a browser doing the login must
+Three repository **variables** — not secrets; a browser doing the login must
 know all of them:
 
 ```bash
@@ -253,6 +253,9 @@ terraform output -raw oidc_issuer      # → OIDC_ISSUER
 terraform output -raw oidc_client_id   # → OIDC_CLIENT_ID
 terraform output -raw oidc_token       # → OIDC_TOKEN   (always "id" for Cognito)
 ```
+
+A fourth, `OIDC_SCOPES`, defaults to `openid profile email` and only needs
+setting for a provider that names its scopes differently. Cognito does not.
 
 **`https://github.com/<you>/<repo>/settings/variables/actions`**, then push to
 `main` and merge to `master` so CD rebuilds the bundle with them. The Sign in
