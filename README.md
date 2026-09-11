@@ -441,10 +441,10 @@ web/             Next.js UI
 
 ## Known gaps
 
-- **No identity provider is provisioned.** The UI runs Authorization Code +
-  PKCE against any OIDC issuer and the API validates its tokens, but Terraform
-  does not create a Cognito pool or equivalent — bring your own, and set the
-  four `OIDC_*` repository variables plus `auth_jwt` in tfvars.
+- **Sign-in is opt-in.** `enable_cognito = true` provisions a user pool wired
+  to both the API and the UI; the default deployment authenticates with API
+  keys only, which is right for machines and means the audit trail cannot say
+  *who* asked. Runbook Step 5.
 - **Key rotation is a redeploy.** Keys live in one SSM parameter read at task
   start, so revoking one means updating the parameter and restarting the
   service. Fine at this scale; a key table in Postgres is the move when it isn't.

@@ -221,6 +221,89 @@ Invoke-RestMethod -Method Post -Uri "$api/v1/ask" -Headers $h `
 
 ---
 
+## Step 5 — sign-in for people (optional)
+
+Everything so far authenticates with API keys, which is right for machines and
+wrong for people: a shared key means the audit trail cannot say who asked.
+Turning on OIDC is one flag and one apply.
+
+### 5a. Provision Cognito
+
+```hcl
+# terraform.tfvars
+enable_cognito = true
+```
+
+```bash
+cd infra/terraform && terraform apply
+```
+
+This creates a user pool, a public app client (no secret — PKCE stands in for
+it), a hosted login page, and four groups named exactly after the API scopes:
+`ask`, `index`, `read`, `metrics`. The API is wired to it in the same apply;
+nothing in `auth_jwt` needs copying.
+
+### 5b. Tell the UI build about it
+
+Four repository **variables** — not secrets; a browser doing the login must
+know all of them:
+
+```bash
+terraform output -raw oidc_issuer      # → OIDC_ISSUER
+terraform output -raw oidc_client_id   # → OIDC_CLIENT_ID
+terraform output -raw oidc_token       # → OIDC_TOKEN   (always "id" for Cognito)
+```
+
+**`https://github.com/<you>/<repo>/settings/variables/actions`**, then push to
+`main` and merge to `master` so CD rebuilds the bundle with them. The Sign in
+button appears once the new bundle is live.
+
+> `OIDC_TOKEN=id` is a Cognito property, not a preference. Its access tokens
+> carry `client_id` rather than `aud` and omit custom attributes; the ID token
+> has both, and the API pins audience. Auth0 and Entra do not need this.
+
+### 5c. Create the first user
+
+Self-service sign-up is off — this is an internal tool, and an account is
+something an admin creates for a named person in a named tenant.
+
+```bash
+POOL=$(terraform output -raw cognito_user_pool_id)
+
+aws cognito-idp admin-create-user   --user-pool-id "$POOL"   --username you@example.com   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true                     Name=custom:org_id,Value=default
+
+# Group membership is what becomes scopes. `ask` and `read` for a person who
+# questions the corpus; add `index` only for someone who may rewrite it.
+aws cognito-idp admin-add-user-to-group --user-pool-id "$POOL" --username you@example.com --group-name ask
+aws cognito-idp admin-add-user-to-group --user-pool-id "$POOL" --username you@example.com --group-name read
+```
+
+Cognito emails a temporary password. First sign-in prompts for a new one.
+
+**Without `custom:org_id` the login succeeds and the API rejects the token** —
+"token carries no tenant". That is deliberate: an unattributable person landing
+in the default tenant is exactly what the tenancy column exists to prevent.
+
+### 5d. Verify
+
+Open the UI → **Sign in** → Cognito's hosted page → back to the dashboard with
+the badge reading *Signed in: you@example.com*. Ask a question, then:
+
+```bash
+curl.exe <api_cdn_url>/v1/audit -H "Authorization: Bearer <an api key with read>"
+```
+
+The newest row's `user_id` is the Cognito `sub`, not a key id. That is the
+whole point of the step.
+
+### Bring your own IdP instead
+
+Skip 5a. Set `auth_jwt` in tfvars with your issuer's JWKS URL, issuer,
+audience and claim names, and the four `OIDC_*` variables from your provider.
+An explicit `auth_jwt` always wins over Cognito.
+
+---
+
 ## Finding everything in AWS
 
 `terraform output` is the source of truth. This section is for when you are in
