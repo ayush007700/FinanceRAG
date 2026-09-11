@@ -187,12 +187,12 @@ bills per call should crash-loop rather than serve traffic it cannot attribute.
 
 ### Known gaps
 
-- **The UI holds its key per tab, not per user.** The static export still
-  cannot carry a credential — `NEXT_PUBLIC_*` is inlined into a bundle any
-  visitor can read — so the operator now pastes a key into a header field and it
-  lives in `sessionStorage` for that tab only. That is a key-entry control, not
-  identity: everyone sharing the deployment shares whatever key they are given.
-  Per-user identity still needs an authenticating proxy or an IdP.
+- **The UI does not run the OIDC login flow.** The API validates OIDC tokens
+  against a JWKS and records the subject in the audit trail, so identity exists
+  at the API. The static UI still takes a pasted credential; a PKCE login in the
+  Next.js app is what remains. Set `auth_jwt` in tfvars to turn the token path
+  on — it rides as plain environment, since a JWKS URL, issuer and audience are
+  public by construction.
 - **Key rotation is a redeploy.** One SSM parameter, read at task start. ECS
   injects it when the container starts, so updating the parameter changes
   nothing until a new task replaces the running one.

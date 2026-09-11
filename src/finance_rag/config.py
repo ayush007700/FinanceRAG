@@ -110,6 +110,21 @@ class Settings(BaseSettings):
     # key, not of a client-supplied header, which is what makes it trustworthy.
     auth_api_keys: str = Field(default="", alias="AUTH_API_KEYS")
 
+    # --- identity via OIDC ------------------------------------------------
+    # Setting the JWKS URL turns the token path on. Issuer and audience are
+    # then required -- verify_auth_configuration refuses to start without them,
+    # because a signature check alone accepts any token that provider ever
+    # minted for any of its applications.
+    auth_jwt_jwks_url: str = Field(default="", alias="AUTH_JWT_JWKS_URL")
+    auth_jwt_issuer: str = Field(default="", alias="AUTH_JWT_ISSUER")
+    auth_jwt_audience: str = Field(default="", alias="AUTH_JWT_AUDIENCE")
+    auth_jwt_algorithms: str = Field(default="RS256", alias="AUTH_JWT_ALGORITHMS")
+    # Providers disagree on where tenant and scopes live: Cognito uses
+    # cognito:groups, Auth0 namespaces custom claims, Entra uses roles. So the
+    # claim names are configuration rather than assumptions.
+    auth_jwt_org_claim: str = Field(default="org_id", alias="AUTH_JWT_ORG_CLAIM")
+    auth_jwt_scopes_claim: str = Field(default="scope", alias="AUTH_JWT_SCOPES_CLAIM")
+
     # --- rate limiting ----------------------------------------------------
     # Authentication says who is spending; these bound how much. Limits are per
     # credential and per scope, because `ask` costs model tokens and `index`

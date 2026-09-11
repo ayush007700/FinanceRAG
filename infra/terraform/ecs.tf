@@ -118,6 +118,14 @@ resource "aws_ecs_task_definition" "api" {
         # whether they are demanded; with it true and no keys supplied, the task
         # refuses to start rather than serving /v1 openly.
         { name = "AUTH_ENABLED", value = var.auth_enabled ? "true" : "false" },
+        # None of these are secrets: a JWKS URL, issuer and audience are public
+        # by construction (any client must know them), so they ride as plain
+        # environment rather than through Parameter Store.
+        { name = "AUTH_JWT_JWKS_URL", value = var.auth_jwt == null ? "" : var.auth_jwt.jwks_url },
+        { name = "AUTH_JWT_ISSUER", value = var.auth_jwt == null ? "" : var.auth_jwt.issuer },
+        { name = "AUTH_JWT_AUDIENCE", value = var.auth_jwt == null ? "" : var.auth_jwt.audience },
+        { name = "AUTH_JWT_ORG_CLAIM", value = var.auth_jwt == null ? "org_id" : var.auth_jwt.org_claim },
+        { name = "AUTH_JWT_SCOPES_CLAIM", value = var.auth_jwt == null ? "scope" : var.auth_jwt.scopes_claim },
         # Indexing is dispatched to its own task; running it in this container
         # exceeds the memory limit and dies with exit 137.
         { name = "INDEX_RUNNER", value = "ecs" },

@@ -147,6 +147,34 @@ key they were handed, and the audit trail attributes to the key, not the person.
 Per-user identity needs an authenticating proxy or an IdP — at which point
 `authenticate()` is the single function that changes.
 
+### How do you add identity to an API that only had API keys?
+
+**The seam matters more than the library.** `authenticate()` was the single
+function that resolved a caller, and everything downstream consumed a
+`Principal` carrying tenant and scopes. Adding tokens meant a second way to
+produce that same object — not a second authorization model.
+
+**What a token adds that a key cannot:** a *subject*. A key identifies a
+credential; many people can share one. A token's `sub` identifies a person.
+The audit row had a `user_id` column since the second migration, with nothing
+ever writing it — the schema was ahead of the code.
+
+**Three decisions worth defending:**
+
+- *Reject a token with no tenant claim rather than default it.* Defaulting is
+  the friendly choice and the wrong one: an unattributable request landing in
+  the default org is exactly the failure the tenancy column exists to prevent.
+- *Refuse to start with a JWKS URL but no issuer/audience.* Signature checks
+  alone prove the provider signed it, not that it was minted *for you*. Without
+  audience pinned, a token for any of that provider's applications works here.
+- *503 for an unreachable JWKS, 401 for a bad token.* Different fault, different
+  fix, different status code. Collapsing them tells the caller to fix their
+  token when the outage is ours.
+
+**The follow-up:** *"Why keep API keys at all?"* Because CI, the eval harness
+and a proxy are not people, and forcing a machine through an OIDC flow to get a
+token with a `sub` of `svc-ci` is ceremony that buys nothing.
+
 ### How do you rate limit a service that autoscales?
 
 **The trap:** an in-process counter. With N tasks behind an ALB, each task

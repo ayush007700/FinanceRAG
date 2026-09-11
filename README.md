@@ -140,6 +140,33 @@ Keys are configured as `AUTH_API_KEYS`, comma-separated:
 key_id:org_id:scopes:secret
 ```
 
+### Identity: people and machines
+
+Two credential kinds share one gate. **API keys** are for machine clients —
+CI, the eval harness, a proxy. **OIDC bearer tokens** are for people. Both
+resolve to the same `Principal` carrying tenant, scopes and a `subject`: the
+key id for a key, `sub` for a token. That subject is what the audit trail
+records, which turns *"which credential asked this?"* into *"who asked this?"*.
+
+```
+AUTH_JWT_JWKS_URL=https://cognito-idp.ap-south-1.amazonaws.com/<pool>/.well-known/jwks.json
+AUTH_JWT_ISSUER=https://cognito-idp.ap-south-1.amazonaws.com/<pool>
+AUTH_JWT_AUDIENCE=<app-client-id>
+AUTH_JWT_ORG_CLAIM=custom:org_id        # provider-specific
+AUTH_JWT_SCOPES_CLAIM=cognito:groups    # provider-specific
+```
+
+Setting the JWKS URL turns tokens on; issuer **and** audience are then required
+or the task refuses to start — a signature check alone accepts every token the
+provider ever minted for any of its applications. The claim names are
+configuration because providers disagree: Cognito, Auth0 and Entra each put
+tenant and roles somewhere different.
+
+Three rejections are deliberately distinct. A bad token is the caller's fault
+(`401`). A JWKS endpoint we cannot reach is ours (`503`). A token that validates
+but names no tenant is rejected rather than defaulted — an unattributable
+request is precisely what the tenancy column exists to prevent.
+
 ### Rate limiting
 
 Authentication says *who* is spending; it does not bound *how much*. Limits are
@@ -395,14 +422,10 @@ web/             Next.js UI
 
 ## Known gaps
 
-- **The UI's key is per tab, not per user.** The static export cannot carry a
-  credential — `NEXT_PUBLIC_*` is inlined into a bundle any visitor can read, so
-  a key put there is a published key. The operator pastes one into the header
-  field instead; it lives in `sessionStorage` under `finance_rag_api_key` and is
-  sent as a bearer token. That authenticates the browser, but it does not
-  identify the person: everyone sharing the deployment shares whatever key they
-  are handed. Per-user identity needs an authenticating proxy or an IdP.
-  Machine clients (CI, the eval harness) are unaffected.
+- **The UI does not do the OIDC login flow.** The API accepts OIDC tokens and
+  attributes requests to their subject, but the static UI still takes a pasted
+  credential — an API key or a token obtained elsewhere. Wiring a PKCE login
+  into the Next.js app is the remaining step; the API side is done.
 - **Key rotation is a redeploy.** Keys live in one SSM parameter read at task
   start, so revoking one means updating the parameter and restarting the
   service. Fine at this scale; a key table in Postgres is the move when it isn't.

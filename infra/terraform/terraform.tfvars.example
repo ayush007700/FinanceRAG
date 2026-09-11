@@ -30,3 +30,12 @@ github_org_repo = ""
 desired_count = 2
 min_capacity  = 1
 max_capacity  = 6
+
+# Optional: OIDC tokens for people, alongside the API keys machines use.
+# auth_jwt = {
+#   jwks_url = "https://cognito-idp.ap-south-1.amazonaws.com/<pool-id>/.well-known/jwks.json"
+#   issuer   = "https://cognito-idp.ap-south-1.amazonaws.com/<pool-id>"
+#   audience = "<app-client-id>"
+#   org_claim    = "custom:org_id"
+#   scopes_claim = "cognito:groups"
+# }
