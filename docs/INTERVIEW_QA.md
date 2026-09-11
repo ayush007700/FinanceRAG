@@ -147,6 +147,75 @@ key they were handed, and the audit trail attributes to the key, not the person.
 Per-user identity needs an authenticating proxy or an IdP — at which point
 `authenticate()` is the single function that changes.
 
+### How do you add identity to an API that only had API keys?
+
+**The seam matters more than the library.** `authenticate()` was the single
+function that resolved a caller, and everything downstream consumed a
+`Principal` carrying tenant and scopes. Adding tokens meant a second way to
+produce that same object — not a second authorization model.
+
+**What a token adds that a key cannot:** a *subject*. A key identifies a
+credential; many people can share one. A token's `sub` identifies a person.
+The audit row had a `user_id` column since the second migration, with nothing
+ever writing it — the schema was ahead of the code.
+
+**Three decisions worth defending:**
+
+- *Reject a token with no tenant claim rather than default it.* Defaulting is
+  the friendly choice and the wrong one: an unattributable request landing in
+  the default org is exactly the failure the tenancy column exists to prevent.
+- *Refuse to start with a JWKS URL but no issuer/audience.* Signature checks
+  alone prove the provider signed it, not that it was minted *for you*. Without
+  audience pinned, a token for any of that provider's applications works here.
+- *503 for an unreachable JWKS, 401 for a bad token.* Different fault, different
+  fix, different status code. Collapsing them tells the caller to fix their
+  token when the outage is ours.
+
+**The follow-up:** *"Why keep API keys at all?"* Because CI, the eval harness
+and a proxy are not people, and forcing a machine through an OIDC flow to get a
+token with a `sub` of `svc-ci` is ceremony that buys nothing.
+
+### Why PKCE in the browser, and why is the client id public?
+
+**The constraint:** a static export has no server, so there is nowhere to hold
+a client secret. Every OAuth flow that needs one is ruled out before the design
+starts.
+
+**PKCE is the flow built for this.** The client generates a random verifier,
+sends its hash with the authorization request, and presents the verifier when
+exchanging the code. An attacker who intercepts the code cannot redeem it
+without the verifier, which never left the tab. That replaces the secret with a
+proof of possession -- which is why the client id can be public: it identifies
+the application, it does not authenticate it.
+
+**Two decisions worth naming:**
+
+- *The callback is the page itself.* A dedicated `/callback` route on S3 needs
+  its own `index.html` and a rewrite rule. Landing on `/` and reading the
+  query works on every static host, and the code is stripped from the URL
+  before it reaches history or a referrer log.
+- *Silent renew is off.* It depends on third-party-cookie behaviour browsers
+  are removing. The user signs in again when the token expires, which at a
+  one-hour lifetime is the honest trade.
+
+**The follow-up:** *"Why not send the ID token?"* Because the ID token is
+minted for the client, the access token for the API -- `aud` says so. The
+exception is Cognito, whose access tokens carry `client_id` instead of `aud`;
+there the ID token is the pragmatic choice, and the workaround is named in the
+config rather than hidden in code.
+
+### Why does `/metrics` need its own scope rather than `read`?
+
+Scopes are split by consequence. `read` exposes other people's questions;
+`metrics` exposes request rates and latencies. Neither implies the other, and a
+Prometheus scraper holding `read` can dump the audit trail. So a fourth scope,
+and a scrape credential that holds only it.
+
+The route was the one on the service with no credential check -- reachable
+through CloudFront by anyone. Traffic shape is not user data, but it is
+reconnaissance, and "everything except this one" is the sentence that ends up
+in an incident report.
+
 ### How do you rate limit a service that autoscales?
 
 **The trap:** an in-process counter. With N tasks behind an ALB, each task
@@ -191,6 +260,48 @@ looks like you applied the rule inconsistently.
 
 **Locking without DynamoDB:** `use_lockfile` uses S3 conditional writes
 (Terraform 1.10+). One less resource than the pattern most tutorials still show.
+
+### How do you gate a deploy on RAG quality without paying for it on every push?
+
+**Name the cost first.** The golden set is 39 cases, each a full agent run:
+embeddings, rerank, generation. With the LLM judge, roughly double. That is
+real money per run, so "run it on every push" is the answer that gets the gate
+switched off within a month.
+
+**So: gate the path to production, not the path to `main`.** Only a PR into
+`master` deploys, so only that PR runs the eval. Docs and UI changes skip it
+entirely -- they cannot move retrieval metrics.
+
+**Drop the judge on the gate, keep it on the schedule.** The judge measures
+faithfulness. The retrieval metrics already bound the failure that matters --
+hallucinated citations -- and the weekly run still judges, so drift is caught
+within a week rather than never.
+
+**What makes it a gate and not a dashboard:** it fails the build on a 0.05
+regression against a committed baseline, it *cannot* write a new baseline from
+the PR path, and the branch ruleset requires it. Any one of those missing and
+it is advisory.
+
+**The follow-up:** *"0.05 tolerance -- why?"* LLM output is non-deterministic;
+a tolerance of zero fails on noise and trains people to re-run until green.
+Tight enough to catch real damage, loose enough that a pass means something.
+
+### Where does an image scan belong in a deploy pipeline?
+
+**Between build and push.** Not after: a vulnerable image scanned after the
+push is already in ECR tagged `:latest`, and the rollback path pulls it. Not
+only in CI on the lock: the lock cannot see the OS packages in the base image,
+which is where most container CVEs live.
+
+**`ignore-unfixed`, deliberately.** A CVE with no upstream fix is not
+actionable; blocking every deploy on it until Debian ships a patch is a policy
+that gets an exception carved out on day two, and then the exception is
+permanent.
+
+**Why four scanners rather than one:** each sees something the others cannot.
+Secrets in history, CVEs in pins, misconfiguration in Terraform, logic flaws in
+our code, OS packages in the image. A single "security scan" step is usually
+one of these wearing the name of all five.
 
 ### You turn on a type checker and it finds 29 errors. Now what?
 

@@ -1,0 +1,68 @@
+# Four ecosystems, because the attack surface has four package managers: the
+# Python service, the Next.js UI, the actions the pipelines run, and the base
+# image the container is built from. Leaving any one out is the gap someone
+# finds first.
+#
+# Weekly rather than daily: with 123 pinned Python packages, daily would open a
+# PR most mornings and train everyone to merge without reading. Security
+# advisories bypass the schedule and open immediately.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the LangChain family, which releases in lockstep and breaks
+      # when versions drift apart. Reviewing them separately is worse than
+      # reviewing them together.
+      langchain:
+        patterns: ["langchain*", "langgraph*", "langsmith"]
+      # Observability and tooling move without touching request paths.
+      observability:
+        patterns: ["opentelemetry*", "prometheus-client", "langfuse", "structlog"]
+    labels: ["dependencies", "python"]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      next:
+        patterns: ["next", "react", "react-dom", "eslint-config-next"]
+      # Types, lint config and build tooling: one PR, reviewed as a unit.
+      tooling:
+        patterns: ["@types/*", "eslint*", "@eslint/*", "typescript", "postcss", "tailwindcss"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Majors of the framework and the compiler are migrations, not updates.
+      # They arrive as a PR nobody can merge and sit open until closed. Bump
+      # these by hand when the migration is planned.
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+    labels: ["dependencies", "ui"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "ci"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "container"]

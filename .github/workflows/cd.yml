@@ -38,7 +38,7 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image
+      - name: Build image
         id: build
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -46,9 +46,31 @@ jobs:
         run: |
           IMAGE_URI="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           docker build -t "$IMAGE_URI" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
-          docker push "$IMAGE_URI"
-          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
           echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      # Between build and push on purpose. Scanning after the push means a
+      # vulnerable image is already in ECR tagged :latest, and a rollback would
+      # pull it. Scanning the image rather than the lock catches what the lock
+      # cannot see: the OS packages in python:3.12-slim.
+      #
+      # ignore-unfixed: a CVE with no available fix is not actionable here and
+      # would block every deploy until upstream ships one.
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.build.outputs.image }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+          format: table
+
+      - name: Push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker push "${{ steps.build.outputs.image }}"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
 
       # ------------------------------------------------------------------
       # Migrations run before the deploy, inside the VPC.
@@ -166,6 +188,14 @@ jobs:
           # Baked in at build time: NEXT_PUBLIC_* is inlined into the bundle,
           # so this cannot be changed without rebuilding.
           NEXT_PUBLIC_API_URL: ${{ vars.API_BASE_URL }}
+          # OIDC sign-in. All four are public by construction -- a browser
+          # doing the login must know them -- so they are variables, not
+          # secrets. Leave OIDC_ISSUER unset and the UI shows only the API key
+          # field.
+          NEXT_PUBLIC_OIDC_ISSUER: ${{ vars.OIDC_ISSUER }}
+          NEXT_PUBLIC_OIDC_CLIENT_ID: ${{ vars.OIDC_CLIENT_ID }}
+          NEXT_PUBLIC_OIDC_SCOPES: ${{ vars.OIDC_SCOPES }}
+          NEXT_PUBLIC_OIDC_TOKEN: ${{ vars.OIDC_TOKEN }}
         run: |
           npm ci
           npm run build

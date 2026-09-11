@@ -5,6 +5,13 @@ global:
 scrape_configs:
   - job_name: finance-rag
     metrics_path: /metrics
+    # /metrics requires a bearer credential holding the `metrics` scope. Issue
+    # a key with only that scope -- e.g. "prom:default:metrics:<secret>" in
+    # AUTH_API_KEYS -- and put the secret alone in this file. A scraper that can
+    # read metrics must not also be able to read the audit trail.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/finance-rag.token
     static_configs:
       - targets: ["host.docker.internal:8000"]
         labels:

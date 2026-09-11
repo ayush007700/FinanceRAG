@@ -3,8 +3,33 @@ name: Eval
 # Separate from CI on purpose: this workflow spends real money on model calls and
 # needs an indexed corpus, so it must not run on every push. It is the gate for
 # retrieval quality regressions, not for correctness.
+#
+# Three ways in, one job:
+#
+#   pull_request -> master   The release gate. Every PR that would deploy runs
+#                            the golden set without the LLM judge and fails on
+#                            regression against the baseline. Judging is
+#                            skipped because it doubles the cost and measures
+#                            faithfulness, which the retrieval metrics gate
+#                            already bounds through hallucinated-citation count.
+#   schedule                 Weekly drift check with the judge on.
+#   workflow_dispatch        Manual, with the judge and baseline options.
+#
+# The gate needs OPENAI_API_KEY and COHERE_API_KEY as repository secrets. For
+# it to actually block a merge, the branch ruleset on master must list
+# "Golden-set evaluation" as a required check -- a workflow that runs but is
+# not required is advisory.
 
 on:
+  pull_request:
+    branches: [master]
+    # Docs and UI changes cannot move retrieval metrics; skipping them keeps
+    # the gate's cost proportional to what it can catch.
+    paths-ignore:
+      - "docs/**"
+      - "web/**"
+      - "**/*.md"
+      - ".github/dependabot.yml"
   workflow_dispatch:
     inputs:
       save_baseline:
@@ -18,6 +43,12 @@ on:
   schedule:
     # Weekly drift check: model endpoints change under pinned aliases.
     - cron: "0 6 * * 1"
+
+# A second push to the same PR cancels the eval already running for it; the
+# result of the superseded run could never be what merges.
+concurrency:
+  group: eval-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   eval:
@@ -68,12 +99,18 @@ jobs:
         run: finance-rag index data/corpus
 
       - name: Run evaluation
+        env:
+          # The release gate never judges and never saves a baseline: a gate
+          # that can rewrite its own pass criterion is not a gate.
+          IS_GATE: ${{ github.event_name == 'pull_request' }}
         run: |
           ARGS=""
-          if [ "${{ inputs.no_judge }}" = "true" ]; then ARGS="$ARGS --no-judge"; fi
-          if [ "${{ inputs.save_baseline }}" = "true" ]; then ARGS="$ARGS --save-baseline"; fi
-          # Label the run with the commit so the history table is navigable.
-          python scripts/run_eval.py $ARGS --label "ci-${GITHUB_SHA::7}"
+          if [ "$IS_GATE" = "true" ] || [ "${{ inputs.no_judge }}" = "true" ]; then ARGS="$ARGS --no-judge"; fi
+          if [ "$IS_GATE" != "true" ] && [ "${{ inputs.save_baseline }}" = "true" ]; then ARGS="$ARGS --save-baseline"; fi
+          if [ "$IS_GATE" = "true" ]; then LABEL="gate-pr${{ github.event.pull_request.number }}-${GITHUB_SHA::7}"; else LABEL="ci-${GITHUB_SHA::7}"; fi
+          # Not piped: a shell pipeline reports the last command's exit code,
+          # and this script's non-zero exit is the whole point of the gate.
+          python scripts/run_eval.py $ARGS --label "$LABEL"
 
       - name: Upload report
         if: always()
@@ -83,7 +120,7 @@ jobs:
           path: data/processed/eval_report.json
 
       - name: Upload updated baseline
-        if: ${{ inputs.save_baseline }}
+        if: ${{ github.event_name != 'pull_request' && inputs.save_baseline }}
         uses: actions/upload-artifact@v4
         with:
           name: eval-baseline

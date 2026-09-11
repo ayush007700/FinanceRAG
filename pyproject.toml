@@ -30,6 +30,9 @@ dependencies = [
   "uvicorn[standard]>=0.30.0",
   "pydantic>=2.8.0",
   "pydantic-settings>=2.4.0",
+  # OIDC bearer tokens. [crypto] brings the RSA/EC verification that JWKS keys
+  # need; cryptography is already in the tree via other dependencies.
+  "PyJWT[crypto]>=2.8.0",
   "python-dotenv>=1.0.0",
   "tiktoken>=0.7.0",
   "numpy>=1.26.0",

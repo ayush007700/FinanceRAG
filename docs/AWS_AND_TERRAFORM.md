@@ -187,12 +187,12 @@ bills per call should crash-loop rather than serve traffic it cannot attribute.
 
 ### Known gaps
 
-- **The UI holds its key per tab, not per user.** The static export still
-  cannot carry a credential — `NEXT_PUBLIC_*` is inlined into a bundle any
-  visitor can read — so the operator now pastes a key into a header field and it
-  lives in `sessionStorage` for that tab only. That is a key-entry control, not
-  identity: everyone sharing the deployment shares whatever key they are given.
-  Per-user identity still needs an authenticating proxy or an IdP.
+- **No identity provider is provisioned.** The UI does PKCE against any OIDC
+  issuer and the API validates the tokens, but nothing in Terraform creates a
+  Cognito pool. Bring your own: `auth_jwt` in tfvars for the API, four
+  `OIDC_*` repository variables for the UI build. Both ride as plain
+  configuration, since a JWKS URL, issuer and public client id are public by
+  construction.
 - **Key rotation is a redeploy.** One SSM parameter, read at task start. ECS
   injects it when the container starts, so updating the parameter changes
   nothing until a new task replaces the running one.
@@ -204,9 +204,6 @@ bills per call should crash-loop rather than serve traffic it cannot attribute.
 - **No WAF.** Worth adding before public exposure. Rate limiting is per
   credential and in-process of the API; a WAF would add per-IP limiting in front
   of it, which is the layer that stops unauthenticated floods reaching the ALB.
-- **`/metrics` is unauthenticated.** Prometheus output is reachable by anyone
-  who can reach the API. It exposes request rates and latencies, not answers,
-  but it is the one route with no credential check.
 
 ---
 
@@ -256,7 +253,6 @@ interleave and the loser's resources are orphaned -- created in AWS, absent from
 state. Versioning is the other half: a partial write leaves no earlier copy to
 roll back to unless the bucket keeps one.
 
-
 ### `ignore_changes` on the ECS service
 
 ```hcl
@@ -281,7 +277,8 @@ owns what's running in it."*
 |---|---|---|
 | `ci.yml` | push to `main`, PRs into `main` or `master` | ruff + full test suite against a pgvector service container |
 | `cd.yml` | push to `master` | build → ECR → migrate → render task def → ECS rolling deploy |
-| `eval.yml` | manual + weekly | golden-set eval with a regression gate |
+| `eval.yml` | **PRs into `master`**, manual, weekly | golden-set eval; the PR trigger is the release gate |
+| `security.yml` | push, PRs, weekly | gitleaks, pip-audit, trivy (fs + IaC), CodeQL |
 
 ### Why two branches
 
@@ -304,6 +301,41 @@ services:
 
 So the store integration tests **execute** rather than skip. Tests that skip in
 CI are tests you do not have.
+
+### The release gate runs the golden set
+
+A PR into `master` -- the only path to production -- runs the 39-case golden
+set without the LLM judge and fails on regression against the committed
+baseline. Judging is skipped because it roughly doubles the cost and measures
+faithfulness, which the retrieval metrics already bound through the
+hallucinated-citation count. The scheduled weekly run keeps the judge on.
+
+Docs and UI changes skip it: they cannot move retrieval metrics, and a gate
+whose cost is not proportional to what it can catch gets disabled.
+
+Two things make it a gate rather than a report. It never saves a baseline on
+the PR path -- a gate that can rewrite its own pass criterion is not one -- and
+the branch ruleset must list `Golden-set evaluation` as a required check. A
+workflow that runs but is not required is advisory.
+
+### Four scanners, each seeing something the others cannot
+
+| scanner | sees | cannot see |
+|---|---|---|
+| gitleaks | secrets anywhere in history, including reverted commits | anything about dependencies |
+| pip-audit | CVEs in the exact Python pins the image installs | OS packages, npm, misconfiguration |
+| trivy (fs) | Terraform and Dockerfile misconfiguration, npm CVEs | our own code's logic |
+| trivy (image) | CVEs in the OS layer of `python:3.12-slim` | -- runs in CD, between build and push |
+| CodeQL | injection, unsafe deserialisation, path traversal in our code | third-party CVEs |
+
+The image scan sits **between build and push** on purpose. Scanned after the
+push, a vulnerable image is already in ECR tagged `:latest`, and a rollback
+would pull it. `ignore-unfixed` is set: a CVE with no available fix is not
+actionable and would block every deploy until upstream ships one.
+
+Dependabot watches four ecosystems -- pip, npm, GitHub Actions and the Docker
+base image -- weekly, with the LangChain family grouped into one PR because it
+releases in lockstep and breaks when versions drift apart.
 
 ### Three gates, none of them decorative
 

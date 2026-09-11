@@ -193,10 +193,10 @@ async def ask(
     runs in a worker thread. Awaiting it directly on the event loop would stall
     every other in-flight request for the duration.
     """
-    return await run_in_threadpool(_ask_sync, payload, principal.org_id)
+    return await run_in_threadpool(_ask_sync, payload, principal.org_id, principal.subject)
 
 
-def _ask_sync(payload: AskRequest, org_id: str) -> AskResponse:
+def _ask_sync(payload: AskRequest, org_id: str, user_id: str | None = None) -> AskResponse:
     with track_request("ask") as meta:
         image_bytes = None
         if payload.image_base64:
@@ -212,6 +212,7 @@ def _ask_sync(payload: AskRequest, org_id: str) -> AskResponse:
                 image_bytes=image_bytes,
                 image_mime=payload.image_mime,
                 org_id=org_id,
+        user_id=user_id,
                 as_of=payload.as_of,
             )
         except Exception as tip:
@@ -252,7 +253,7 @@ async def ask_multipart(
     )
     # Same threadpool hop as /v1/ask: the agent blocks, and this endpoint is a
     # coroutine, so calling it directly would stall the event loop.
-    return await run_in_threadpool(_ask_sync, payload, principal.org_id)
+    return await run_in_threadpool(_ask_sync, payload, principal.org_id, principal.subject)
 
 
 @app.post("/v1/index", status_code=202)
@@ -387,6 +388,7 @@ async def ask_stream(
                     thread_id=payload.thread_id,
                     service_line=payload.service_line,
                     org_id=principal.org_id,
+                    user_id=principal.subject,
                     as_of=payload.as_of,
                     on_stage=emit,
                 )
@@ -469,7 +471,15 @@ def eval_runs(
 
 
 @app.get("/metrics")
-def prometheus_metrics() -> Response:
+def prometheus_metrics(principal: Principal = Depends(require(Scope.METRICS))) -> Response:
+    """Prometheus exposition.
+
+    Was the one route on the service with no credential check, reachable through
+    CloudFront by anyone. The output is request rates and latencies, not user
+    data -- but traffic shape is reconnaissance, and "everything except this
+    one" is the sentence that ends up in an incident report. Prometheus sends
+    the bearer through ``authorization.credentials_file`` in its scrape config.
+    """
     if not settings.enable_prometheus:
         raise HTTPException(status_code=404, detail="Prometheus disabled")
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest

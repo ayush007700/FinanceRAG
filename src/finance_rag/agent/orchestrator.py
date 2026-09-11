@@ -89,6 +89,9 @@ class AgentState(TypedDict, total=False):
     trace_id: str
     thread_id: str | None
     org_id: str | None
+    # Who asked. The key id for a machine credential, the token subject for a
+    # person. The audit column has existed since 0002 with nothing writing it.
+    user_id: str | None
     as_of: Any | None
     image_caption: str | None
     started_at: float
@@ -447,6 +450,7 @@ class MultiAgentRAG:
                 trace_id=state.get("trace_id") or "",
                 thread_id=state.get("thread_id"),
                 org_id=state.get("org_id"),
+                user_id=state.get("user_id"),
                 query=state["query"],
                 rewritten_query=state.get("search_query"),
                 service_line=state.get("service_line"),
@@ -491,6 +495,7 @@ class MultiAgentRAG:
         org_id: str | None = None,
         as_of: Any | None = None,
         on_stage: Any | None = None,
+        user_id: str | None = None,
     ) -> RAGResponse:
         image_caption = None
         if image_bytes and self.settings.multimodal_enabled:
@@ -531,6 +536,7 @@ class MultiAgentRAG:
                 "thread_id": thread_id,
                 "image_caption": image_caption,
                 "org_id": org_id or self.settings.default_org_id,
+                "user_id": user_id,
                 "as_of": as_of,
                 "allowed": True,
                 "guardrail_reasons": [],

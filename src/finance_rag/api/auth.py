@@ -12,9 +12,20 @@ acts for and what it is allowed to do -- which is why :func:`tenant` can stay
 the single seam that resolves the org. It now reads a verified credential
 instead of a bare header.
 
-Swapping in an IdP later means replacing :func:`authenticate` with one that
-validates that provider's token and reads the same two facts out of its claims.
-Nothing else in the application changes.
+Two credential kinds now share this gate. Static API keys remain for machine
+clients: CI, the eval harness, a proxy. JWTs from an OIDC provider carry a
+person. Both resolve to the same :class:`Principal`, and both yield the same
+two facts the rest of the application needs -- tenant and scopes -- plus a
+``subject`` that the audit trail records. For a key that is the key id; for a
+token it is ``sub``. That is what turns "which credential asked this?" into
+"who asked this?".
+
+The token path validates against the provider's JWKS. Which claim names the
+tenant and which names the scopes are configuration, because providers do not
+agree: Cognito puts groups in ``cognito:groups``, Auth0 namespaces custom
+claims, Entra uses ``roles``. A token whose tenant claim is absent is rejected
+rather than defaulted, since an unattributable request is exactly what the
+tenancy column exists to prevent.
 """
 
 from __future__ import annotations
@@ -37,25 +48,43 @@ class Scope:
     """What a credential is allowed to do.
 
     Split by consequence rather than by endpoint: ``ask`` spends money, ``index``
-    mutates the corpus, ``read`` exposes other people's questions. A key issued
-    to the eval harness needs the first and not the second.
+    mutates the corpus, ``read`` exposes other people's questions, ``metrics``
+    exposes traffic shape. A key issued to the eval harness needs the first and
+    not the second; one issued to Prometheus needs the last and nothing else.
     """
 
     ASK: Final = "ask"
     INDEX: Final = "index"
     READ: Final = "read"
+    # Its own scope rather than a use of `read`, by the same consequence
+    # reasoning: `read` exposes other people's questions, `metrics` exposes
+    # request rates and latencies. A scrape credential should hold the second
+    # without the first.
+    METRICS: Final = "metrics"
 
-    ALL: Final = frozenset({ASK, INDEX, READ})
+    ALL: Final = frozenset({ASK, INDEX, READ, METRICS})
     WILDCARD: Final = "*"
 
 
 @dataclass(frozen=True)
 class Principal:
-    """The authenticated caller behind one request."""
+    """The authenticated caller behind one request.
+
+    ``key_id`` identifies the credential; ``subject`` identifies who holds it.
+    They coincide for API keys, where the key *is* the identity, and diverge for
+    tokens, where many people authenticate through one issuer. The audit trail
+    wants the second.
+    """
 
     org_id: str
     key_id: str
     scopes: frozenset[str]
+    subject: str = ""
+    kind: str = "api_key"
+
+    def __post_init__(self) -> None:
+        if not self.subject:
+            object.__setattr__(self, "subject", self.key_id)
 
 
 def _digest(secret: str) -> str:
@@ -140,6 +169,113 @@ def _credential(authorization: str | None) -> str | None:
     return value.strip() or None
 
 
+def _looks_like_jwt(credential: str) -> bool:
+    """Structural check: three base64url segments.
+
+    API key secrets from the documented generator never contain a dot, so this
+    cannot misroute one. A hand-chosen secret with exactly two dots would be
+    tried as a token first and rejected; that is a configuration to avoid, not a
+    case to engineer around.
+    """
+    return credential.count(".") == 2 and all(credential.split("."))
+
+
+@lru_cache(maxsize=4)
+def _jwks_client(url: str):
+    """One JWKS client per URL for the process. It caches keys internally, so
+    a signing-key lookup is a network call only on first sight of a ``kid``
+    or after its cache expires -- not per request."""
+    import jwt
+
+    return jwt.PyJWKClient(url, cache_keys=True, lifespan=600)
+
+
+def _signing_key(token: str):
+    """Resolve the public key the token claims to be signed with."""
+    settings_ = get_settings()
+    return _jwks_client(settings_.auth_jwt_jwks_url).get_signing_key_from_jwt(token).key
+
+
+def _claim_scopes(claims: dict, claim: str) -> frozenset[str]:
+    """Scopes from a claim that may be a space-separated string (OAuth 2.0's
+    ``scope``) or a list (most providers' role/group claims)."""
+    raw = claims.get(claim)
+    if raw is None:
+        return frozenset()
+    names = raw.split() if isinstance(raw, str) else [str(x) for x in raw]
+    field = "|".join(names)
+    return _parse_scopes(field, key_id="jwt") if field else frozenset()
+
+
+def _authenticate_jwt(token: str) -> Principal:
+    """Validate a bearer token against the configured issuer.
+
+    Three failures are kept distinct because they need different fixes:
+    a token that fails validation is the caller's problem (401); a JWKS
+    endpoint we cannot reach is ours (503); a token that validates but names
+    no tenant is a provider misconfiguration, and the 401 says which claim.
+    """
+    import jwt
+
+    settings_ = get_settings()
+    try:
+        key = _signing_key(token)
+    except jwt.exceptions.PyJWKClientConnectionError as exc:
+        logger.error("auth_jwks_unreachable", url=settings_.auth_jwt_jwks_url, error=str(exc))
+        raise HTTPException(
+            status_code=503, detail="identity provider unreachable; retry shortly"
+        ) from exc
+    except jwt.exceptions.PyJWKClientError as exc:
+        # The key id the token names is not one the issuer publishes. That is
+        # a token problem -- forged, or from a rotated-out key -- not ours.
+        logger.warning("auth_rejected", reason="unknown_kid", kind="jwt")
+        raise _unauthorized("invalid credential") from exc
+
+    try:
+        claims = jwt.decode(
+            token,
+            key,
+            algorithms=settings_.auth_jwt_algorithms.split(","),
+            audience=settings_.auth_jwt_audience or None,
+            issuer=settings_.auth_jwt_issuer or None,
+            options={"require": ["exp", "sub"]},
+        )
+    except jwt.ExpiredSignatureError as exc:
+        logger.info("auth_rejected", reason="token_expired", kind="jwt")
+        raise _unauthorized("token expired") from exc
+    except jwt.InvalidTokenError as exc:
+        # One reason in the log, one generic detail to the caller: which check
+        # failed is useful to an operator and a hint to an attacker.
+        logger.warning("auth_rejected", reason=type(exc).__name__, kind="jwt")
+        raise _unauthorized("invalid credential") from exc
+
+    org_id = str(claims.get(settings_.auth_jwt_org_claim) or "").strip()
+    if not org_id:
+        logger.warning(
+            "auth_rejected", reason="missing_tenant_claim", claim=settings_.auth_jwt_org_claim
+        )
+        raise _unauthorized(
+            f"token carries no tenant: claim {settings_.auth_jwt_org_claim!r} is required"
+        )
+
+    scopes = _claim_scopes(claims, settings_.auth_jwt_scopes_claim)
+    if not scopes:
+        # A token with no scopes can do nothing, so say so at the gate rather
+        # than letting every route 403 with a message about a missing scope.
+        logger.warning("auth_rejected", reason="no_scopes", kind="jwt")
+        raise _unauthorized(
+            f"token grants no scopes: claim {settings_.auth_jwt_scopes_claim!r} is empty"
+        )
+
+    return Principal(
+        org_id=org_id,
+        key_id="jwt",
+        scopes=scopes,
+        subject=str(claims["sub"]),
+        kind="jwt",
+    )
+
+
 def _unauthorized(detail: str) -> HTTPException:
     # WWW-Authenticate is what makes a 401 well-formed, and tells the client
     # which scheme to retry with instead of guessing.
@@ -185,11 +321,15 @@ def authenticate(
     if presented is None:
         raise _unauthorized("missing bearer credential")
 
-    principal = _key_table(settings_.auth_api_keys).get(_digest(presented))
+    if settings_.auth_jwt_jwks_url and _looks_like_jwt(presented):
+        principal: Principal | None = _authenticate_jwt(presented)
+    else:
+        principal = _key_table(settings_.auth_api_keys).get(_digest(presented))
+
     if principal is None:
         # No key id to log: there is no verified identity to attribute this to,
         # and logging any part of the presented secret would put it in CloudWatch.
-        logger.warning("auth_rejected", reason="unknown_key")
+        logger.warning("auth_rejected", reason="unknown_key", kind="api_key")
         raise _unauthorized("invalid credential")
 
     if not settings_.enforce_tenancy:
@@ -264,11 +404,23 @@ def verify_auth_configuration() -> None:
     # Parses eagerly: a malformed value must fail at startup, not on the first
     # request that happens to need a key.
     table = _key_table(settings_.auth_api_keys)
-    if table:
+    jwt_on = bool(settings_.auth_jwt_jwks_url)
+    if jwt_on and not (settings_.auth_jwt_issuer and settings_.auth_jwt_audience):
+        # A JWKS URL alone verifies signatures, not provenance: without issuer
+        # and audience pinned, any token that provider ever signed for any of
+        # its applications would authenticate here.
+        raise RuntimeError(
+            "AUTH_JWT_JWKS_URL is set but AUTH_JWT_ISSUER or AUTH_JWT_AUDIENCE is "
+            "empty: signature checks without issuer and audience accept tokens "
+            "minted for other applications"
+        )
+    if table or jwt_on:
         logger.info(
             "auth_enabled",
             keys=len(table),
             orgs=len({p.org_id for p in table.values()}),
+            jwt=jwt_on,
+            issuer=settings_.auth_jwt_issuer or None,
         )
         return
 
@@ -280,7 +432,8 @@ def verify_auth_configuration() -> None:
         return
 
     raise RuntimeError(
-        "AUTH_ENABLED is on but AUTH_API_KEYS is empty: this task can authenticate "
-        "nobody and every /v1 request would 401. Supply AUTH_API_KEYS, or set "
-        "AUTH_ENABLED=false to serve without authentication on purpose."
+        "AUTH_ENABLED is on but neither AUTH_API_KEYS nor AUTH_JWT_JWKS_URL is set: "
+        "this task can authenticate nobody and every /v1 request would 401. Supply "
+        "one of them, or set AUTH_ENABLED=false to serve without authentication "
+        "on purpose."
     )

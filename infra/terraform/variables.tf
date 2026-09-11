@@ -45,6 +45,27 @@ variable "auth_api_keys" {
   default     = ""
 }
 
+variable "auth_jwt" {
+  type = object({
+    jwks_url     = string
+    issuer       = string
+    audience     = string
+    org_claim    = optional(string, "org_id")
+    scopes_claim = optional(string, "scope")
+  })
+  default     = null
+  description = <<-EOT
+    OIDC bearer tokens for human callers, alongside the API keys machine clients
+    use. Null leaves the token path off. When set, all three of jwks_url,
+    issuer and audience are required: the task refuses to start with a JWKS
+    URL but no issuer/audience pin, since signature checks alone would accept
+    tokens minted for any of the provider's applications.
+
+    Claim names are per provider -- Cognito: org in a custom attribute, scopes
+    in cognito:groups; Auth0: namespaced custom claims; Entra: roles.
+  EOT
+}
+
 variable "auth_enabled" {
   type        = bool
   description = "Require a bearer credential on /v1. Turn off only when a gateway in front of the ALB authenticates instead."
