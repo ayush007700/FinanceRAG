@@ -281,7 +281,8 @@ owns what's running in it."*
 |---|---|---|
 | `ci.yml` | push to `main`, PRs into `main` or `master` | ruff + full test suite against a pgvector service container |
 | `cd.yml` | push to `master` | build → ECR → migrate → render task def → ECS rolling deploy |
-| `eval.yml` | manual + weekly | golden-set eval with a regression gate |
+| `eval.yml` | **PRs into `master`**, manual, weekly | golden-set eval; the PR trigger is the release gate |
+| `security.yml` | push, PRs, weekly | gitleaks, pip-audit, trivy (fs + IaC), CodeQL |
 
 ### Why two branches
 
@@ -304,6 +305,41 @@ services:
 
 So the store integration tests **execute** rather than skip. Tests that skip in
 CI are tests you do not have.
+
+### The release gate runs the golden set
+
+A PR into `master` -- the only path to production -- runs the 39-case golden
+set without the LLM judge and fails on regression against the committed
+baseline. Judging is skipped because it roughly doubles the cost and measures
+faithfulness, which the retrieval metrics already bound through the
+hallucinated-citation count. The scheduled weekly run keeps the judge on.
+
+Docs and UI changes skip it: they cannot move retrieval metrics, and a gate
+whose cost is not proportional to what it can catch gets disabled.
+
+Two things make it a gate rather than a report. It never saves a baseline on
+the PR path -- a gate that can rewrite its own pass criterion is not one -- and
+the branch ruleset must list `Golden-set evaluation` as a required check. A
+workflow that runs but is not required is advisory.
+
+### Four scanners, each seeing something the others cannot
+
+| scanner | sees | cannot see |
+|---|---|---|
+| gitleaks | secrets anywhere in history, including reverted commits | anything about dependencies |
+| pip-audit | CVEs in the exact Python pins the image installs | OS packages, npm, misconfiguration |
+| trivy (fs) | Terraform and Dockerfile misconfiguration, npm CVEs | our own code's logic |
+| trivy (image) | CVEs in the OS layer of `python:3.12-slim` | -- runs in CD, between build and push |
+| CodeQL | injection, unsafe deserialisation, path traversal in our code | third-party CVEs |
+
+The image scan sits **between build and push** on purpose. Scanned after the
+push, a vulnerable image is already in ECR tagged `:latest`, and a rollback
+would pull it. `ignore-unfixed` is set: a CVE with no available fix is not
+actionable and would block every deploy until upstream ships one.
+
+Dependabot watches four ecosystems -- pip, npm, GitHub Actions and the Docker
+base image -- weekly, with the LangChain family grouped into one PR because it
+releases in lockstep and breaks when versions drift apart.
 
 ### Three gates, none of them decorative
 

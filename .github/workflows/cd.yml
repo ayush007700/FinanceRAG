@@ -38,7 +38,7 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image
+      - name: Build image
         id: build
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -46,9 +46,31 @@ jobs:
         run: |
           IMAGE_URI="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           docker build -t "$IMAGE_URI" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
-          docker push "$IMAGE_URI"
-          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
           echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      # Between build and push on purpose. Scanning after the push means a
+      # vulnerable image is already in ECR tagged :latest, and a rollback would
+      # pull it. Scanning the image rather than the lock catches what the lock
+      # cannot see: the OS packages in python:3.12-slim.
+      #
+      # ignore-unfixed: a CVE with no available fix is not actionable here and
+      # would block every deploy until upstream ships one.
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.build.outputs.image }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+          format: table
+
+      - name: Push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker push "${{ steps.build.outputs.image }}"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
 
       # ------------------------------------------------------------------
       # Migrations run before the deploy, inside the VPC.

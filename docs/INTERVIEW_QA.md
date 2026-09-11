@@ -220,6 +220,48 @@ looks like you applied the rule inconsistently.
 **Locking without DynamoDB:** `use_lockfile` uses S3 conditional writes
 (Terraform 1.10+). One less resource than the pattern most tutorials still show.
 
+### How do you gate a deploy on RAG quality without paying for it on every push?
+
+**Name the cost first.** The golden set is 39 cases, each a full agent run:
+embeddings, rerank, generation. With the LLM judge, roughly double. That is
+real money per run, so "run it on every push" is the answer that gets the gate
+switched off within a month.
+
+**So: gate the path to production, not the path to `main`.** Only a PR into
+`master` deploys, so only that PR runs the eval. Docs and UI changes skip it
+entirely -- they cannot move retrieval metrics.
+
+**Drop the judge on the gate, keep it on the schedule.** The judge measures
+faithfulness. The retrieval metrics already bound the failure that matters --
+hallucinated citations -- and the weekly run still judges, so drift is caught
+within a week rather than never.
+
+**What makes it a gate and not a dashboard:** it fails the build on a 0.05
+regression against a committed baseline, it *cannot* write a new baseline from
+the PR path, and the branch ruleset requires it. Any one of those missing and
+it is advisory.
+
+**The follow-up:** *"0.05 tolerance -- why?"* LLM output is non-deterministic;
+a tolerance of zero fails on noise and trains people to re-run until green.
+Tight enough to catch real damage, loose enough that a pass means something.
+
+### Where does an image scan belong in a deploy pipeline?
+
+**Between build and push.** Not after: a vulnerable image scanned after the
+push is already in ECR tagged `:latest`, and the rollback path pulls it. Not
+only in CI on the lock: the lock cannot see the OS packages in the base image,
+which is where most container CVEs live.
+
+**`ignore-unfixed`, deliberately.** A CVE with no upstream fix is not
+actionable; blocking every deploy on it until Debian ships a patch is a policy
+that gets an exception carved out on day two, and then the exception is
+permanent.
+
+**Why four scanners rather than one:** each sees something the others cannot.
+Secrets in history, CVEs in pins, misconfiguration in Terraform, logic flaws in
+our code, OS packages in the image. A single "security scan" step is usually
+one of these wearing the name of all five.
+
 ### You turn on a type checker and it finds 29 errors. Now what?
 
 Three options, and the choice says more than the errors do.
