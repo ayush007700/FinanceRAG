@@ -35,6 +35,11 @@ export default function HomePage() {
   const [keySet, setKeySet] = useState(false);
   const [user, setUser] = useState<SignedIn | null>(null);
   const [signingIn, setSigningIn] = useState(false);
+  // False until resume() settles. Rendering the sign-in screen before that
+  // would flash it at every returning user for the few hundred ms it takes
+  // to read the session back, and at every OIDC callback while the code is
+  // being exchanged.
+  const [authChecked, setAuthChecked] = useState(false);
 
   // sessionStorage is unavailable during the static export's prerender, so the
   // first paint has to assume no key and correct itself once mounted. The OIDC
@@ -49,7 +54,8 @@ export default function HomePage() {
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Sign-in failed");
         setKeySet(hasApiKey());
-      });
+      })
+      .finally(() => setAuthChecked(true));
   }, []);
 
   useEffect(() => {
@@ -144,6 +150,68 @@ export default function HomePage() {
 
   const apiUp = health?.status === "ok";
 
+  // Every /v1 route needs a credential, so a dashboard with no session is a
+  // page where every button fails. When an identity provider is configured
+  // the sign-in screen is the front door and the dashboard sits behind it;
+  // a pasted API key still opens the door, so operators without an account
+  // and the demo path keep working. Without a provider there is nothing to
+  // sign in to, and the key field in the header is the whole story.
+  if (oidcEnabled && !authChecked) {
+    return (
+      <main className={styles.shell}>
+        <p className={styles.muted}>Checking session…</p>
+      </main>
+    );
+  }
+
+  if (oidcEnabled && !user && !keySet) {
+    return (
+      <main className={styles.gate}>
+        <section className={`${styles.panel} ${styles.gateCard}`}>
+          <p className={styles.eyebrow}>Internal tools</p>
+          <h1 className={styles.brand}>Source Advisors</h1>
+          <p className={styles.sub}>
+            FinanceRAG — grounded answers across R&amp;D, cost segregation,
+            energy incentives, and more. Sign in to continue.
+          </p>
+          {error ? <p className={styles.error}>{error}</p> : null}
+          <button
+            type="button"
+            className={`${styles.primary} ${styles.gateButton}`}
+            onClick={onSignIn}
+            disabled={signingIn}
+          >
+            {signingIn ? "Redirecting…" : "Sign in"}
+          </button>
+          <details className={styles.gateAlt}>
+            <summary>Have an API key instead?</summary>
+            <form onSubmit={onSaveKey} className={styles.keyBar}>
+              <input
+                type="password"
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                placeholder="Paste your API key"
+                aria-label="API key"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button type="submit" className={styles.secondary} disabled={!keyInput.trim()}>
+                Continue
+              </button>
+            </form>
+            <p className={styles.muted}>
+              For machine clients and operators without an account. Stored in
+              this tab only.
+            </p>
+          </details>
+          <p className={styles.muted}>
+            API {apiUp ? "online" : health ? "offline" : "checking…"}
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className={styles.shell}>
       <header className={styles.hero}>
@@ -175,22 +243,11 @@ export default function HomePage() {
             provider and the API attributes their questions to them; machines
             and operators without an IdP paste a key. Both land in the same
             sessionStorage slot and the same Authorization header. */}
-        {oidcEnabled ? (
+        {oidcEnabled && user ? (
           <div className={styles.keyBar}>
-            {user ? (
-              <button type="button" className={styles.secondary} onClick={onSignOut}>
-                Sign out
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={styles.primary}
-                onClick={onSignIn}
-                disabled={signingIn}
-              >
-                {signingIn ? "Redirecting…" : "Sign in"}
-              </button>
-            )}
+            <button type="button" className={styles.secondary} onClick={onSignOut}>
+              Sign out
+            </button>
           </div>
         ) : null}
 
