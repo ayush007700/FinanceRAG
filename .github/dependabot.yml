@@ -31,10 +31,26 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       next:
         patterns: ["next", "react", "react-dom", "eslint-config-next"]
+      # Types, lint config and build tooling: one PR, reviewed as a unit.
+      tooling:
+        patterns: ["@types/*", "eslint*", "@eslint/*", "typescript", "postcss", "tailwindcss"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Majors of the framework and the compiler are migrations, not updates.
+      # They arrive as a PR nobody can merge and sit open until closed. Bump
+      # these by hand when the migration is planned.
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     labels: ["dependencies", "ui"]
 
   - package-ecosystem: github-actions

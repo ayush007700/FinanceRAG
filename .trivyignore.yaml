@@ -1,0 +1,37 @@
+# Findings the scanner is right about and we have decided to accept.
+#
+# Every entry names the decision it defers to. An ignore with no reason is a
+# finding someone silenced; an ignore with a reason is a finding someone owned.
+# When the underlying decision changes, delete the entry and let the gate fail
+# until the resource matches.
+#
+# What is NOT here: anything fixable in a line. Those were fixed.
+
+misconfigurations:
+  # --- The no-NAT design (AWS_AND_TERRAFORM.md §2) ---------------------------
+  # Tasks run in public subnets with public IPs, locked by security group, so
+  # that a $32/month NAT gateway is not the largest line item on a $41 bill.
+  # These three findings are that decision seen from the scanner's side.
+  - id: AVD-AWS-0164
+    statement: Public IPs on ECS tasks are the no-NAT design; the security group is the control.
+  - id: AVD-AWS-0104
+    statement: Egress must reach OpenAI and Cohere; without NAT there is no fixed egress IP to allow-list.
+  - id: AVD-AWS-0053
+    statement: The ALB is internet-facing so CloudFront can reach it; ingress is restricted to the CloudFront prefix list.
+
+  # --- Documented known gaps (AWS_AND_TERRAFORM.md §4) --------------------------
+  # Accepted for now, listed in the doc, and the first things to add before
+  # public exposure. Ignored here so the gate reports new problems rather than
+  # repeating known ones.
+  - id: AVD-AWS-0011
+    statement: No WAF -- a documented gap; add before public exposure.
+  - id: AVD-AWS-0054
+    statement: CloudFront to ALB is HTTP -- a documented gap; needs a domain and an ACM certificate.
+
+  # --- Cost decisions ---------------------------------------------------------------
+  - id: AVD-AWS-0132
+    statement: SSE-S3 rather than a customer-managed KMS key. CMK adds a per-key charge and key-policy surface for buckets holding a public UI bundle and uploaded PDFs; SSE-S3 is encryption at rest without either.
+  - id: AVD-AWS-0136
+    statement: The alarm topic uses the AWS-managed SNS key, not a CMK, for the same reason as the buckets. Alarm bodies name resources and thresholds; a dedicated key adds a charge and a policy for nothing they contain.
+  - id: AVD-AWS-0031
+    statement: ECR tags stay mutable because CD pushes :latest alongside the SHA tag. The SHA is what deploys; :latest is a convenience for the first apply's placeholder.

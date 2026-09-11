@@ -5,6 +5,12 @@ resource "aws_lb" "api" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
+
+  # Headers that are not valid HTTP are dropped rather than forwarded. The
+  # request-smuggling class of attack depends on the load balancer and the
+  # application disagreeing about where one request ends; this removes the
+  # ambiguity at the edge.
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_target_group" "api" {

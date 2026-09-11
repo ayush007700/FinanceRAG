@@ -1,6 +1,10 @@
 # The alarms below previously had no action: they changed state and told nobody.
 resource "aws_sns_topic" "alarms" {
   name = "${var.project_name}-alarms"
+  # The AWS-managed SNS key: encryption at rest with no key to provision or
+  # pay for. Alarm bodies name resources and thresholds, which is enough to be
+  # worth not storing in the clear.
+  kms_master_key_id = "alias/aws/sns"
 }
 
 resource "aws_sns_topic_subscription" "alarms_email" {
