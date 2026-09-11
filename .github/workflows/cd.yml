@@ -56,7 +56,7 @@ jobs:
       # ignore-unfixed: a CVE with no available fix is not actionable here and
       # would block every deploy until upstream ships one.
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.build.outputs.image }}
           scanners: vuln
