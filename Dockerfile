@@ -62,6 +62,17 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 
+# No package installer in the runtime image. Nothing here runs pip after
+# build -- uvicorn, alembic and the scripts are already installed -- and an
+# attacker with a shell should not be able to fetch tooling. It also removes
+# pip's vendored copies of msgpack and pkg_resources, which the image scanner
+# reports against the versions in pip/_vendor/vendor.txt even though nothing
+# outside pip can import them. Both the venv's pip and the base image's are
+# removed; each carries its own vendor tree.
+RUN /opt/venv/bin/python -m pip uninstall -y pip \
+    && /usr/local/bin/python -m pip uninstall -y pip \
+    && rm -rf /usr/local/lib/python3.12/ensurepip
+
 COPY alembic.ini ./
 COPY migrations ./migrations
 # The evaluation harness runs as an ECS task: it builds the agent in-process

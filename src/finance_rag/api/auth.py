@@ -88,7 +88,22 @@ class Principal:
 
 
 def _digest(secret: str) -> str:
-    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    """SHA-256 of an API key secret, for the lookup table.
+
+    Deliberately not bcrypt or argon2. Those are slow so that a stolen digest
+    table cannot be brute-forced offline -- a defence that matters for
+    human-chosen passwords with tens of bits of entropy. These secrets are 40
+    characters from a 64-symbol alphabet, about 240 bits: no hash speed makes
+    that enumerable. A memory-hard KDF here would add ~100 ms to every
+    authenticated request, which is a denial-of-service lever on the auth
+    gate, for no reduction in risk. This is how GitHub and Stripe store their
+    tokens, and for the same reason.
+
+    The table also lives in process memory, built from the same parameter
+    that holds the plaintext secrets; an attacker who can read one can read
+    the other, so a keyed hash would not change what a leak costs either.
+    """
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()  # codeql[py/weak-sensitive-data-hashing]
 
 
 def _parse_scopes(field: str, key_id: str) -> frozenset[str]:
