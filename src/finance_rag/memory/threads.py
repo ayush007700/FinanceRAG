@@ -50,12 +50,36 @@ def _pool():
     )
 
 
+# Why the last attempt failed, for /health to report. Degrading quietly is the
+# right behaviour and a bad way to find out: an undeclared dependency kept the
+# checkpointer off in every deployed image for weeks, and the only trace was one
+# warning line at startup that nobody greps for.
+_last_error: str | None = None
+
+
+def checkpointer_status() -> dict[str, object]:
+    """What multi-turn memory is currently doing, and why.
+
+    Three states, deliberately distinguished: ``disabled`` is a config choice,
+    ``unavailable`` is a fault, and ``ready`` means it works. Collapsing the
+    first two into one boolean is what let a fault masquerade as a setting.
+    """
+    settings = get_settings()
+    if not settings.conversation_memory_enabled:
+        return {"state": "disabled", "reason": "CONVERSATION_MEMORY_ENABLED=false"}
+    if _last_error is not None:
+        return {"state": "unavailable", "reason": _last_error}
+    return {"state": "ready"}
+
+
 def build_checkpointer(setup: bool = True):
     """Return a Postgres checkpointer, or None when unavailable.
 
     Returning None rather than raising is deliberate: losing multi-turn memory
-    degrades the product, while failing to start removes it entirely.
+    degrades the product, while failing to start removes it entirely. The
+    failure is recorded rather than only logged, so /health can say so.
     """
+    global _last_error
     settings = get_settings()
     if not settings.conversation_memory_enabled:
         return None
@@ -78,7 +102,22 @@ def build_checkpointer(setup: bool = True):
         if setup:
             saver.setup()
         logger.info("checkpointer_ready", backend="postgres")
+        _last_error = None
         return saver
     except Exception as exc:  # noqa: BLE001
-        logger.warning("checkpointer_unavailable", error=str(exc))
+        _last_error = f"{type(exc).__name__}: {exc}"
+        # error, not warning: memory is on by default and advertised, so this is
+        # a feature being off, not a note. ImportError is called out because it
+        # means a missing dependency rather than an unreachable database -- the
+        # two look identical in a log line and need opposite fixes.
+        logger.error(
+            "checkpointer_unavailable",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            likely_cause=(
+                "missing dependency; the image may not install it"
+                if isinstance(exc, ImportError)
+                else "database unreachable or checkpointer setup failed"
+            ),
+        )
         return None

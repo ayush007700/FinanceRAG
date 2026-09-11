@@ -162,6 +162,7 @@ class IndexRequest(BaseModel):
 def health() -> dict[str, Any]:
     from finance_rag.cache import SemanticCache
     from finance_rag.db import healthcheck
+    from finance_rag.memory.threads import checkpointer_status
 
     cache = SemanticCache()
     db_ok = healthcheck()
@@ -175,6 +176,9 @@ def health() -> dict[str, Any]:
         # Reports whether tracing is actually reachable, not merely configured.
         "langfuse": langfuse_enabled(),
         "multimodal": settings.multimodal_enabled,
+        # Reported because it degrades silently by design: a fault and a
+        # deliberate "off" are indistinguishable from the outside otherwise.
+        "conversation_memory": checkpointer_status(),
     }
 
 
