@@ -6,9 +6,10 @@ export default defineConfig({
   // No React plugin: it exists for Fast Refresh, which tests do not use, and
   // its Vite major drifts from vitest's. JSX is handled by esbuild below.
   //
-  // Next's tsconfig says jsx: "preserve" for its own compiler; esbuild needs
-  // to be told to use the automatic runtime or tests with JSX see no React.
-  esbuild: { jsx: "automatic" },
+  // Next's tsconfig says jsx: "preserve" for its own compiler; the test
+  // transformer needs to be told to use the automatic runtime or tests with
+  // JSX see no React. Vite 8 transforms with oxc; the esbuild key is gone.
+  oxc: { jsx: { runtime: "automatic" } },
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
   },

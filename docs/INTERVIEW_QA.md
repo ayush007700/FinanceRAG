@@ -548,6 +548,7 @@ is rounding error next to not running it.
 
 ## Related
 
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the whole system on one page, and every path through it
 - [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md) — retrieval, agents, evaluation, 32 war stories
 - [`AWS_AND_TERRAFORM.md`](AWS_AND_TERRAFORM.md) — infrastructure, cost, IAM, IaC
 - [`DEPLOY_RUNBOOK.md`](DEPLOY_RUNBOOK.md) — the operational path these stories came from

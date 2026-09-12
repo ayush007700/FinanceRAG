@@ -422,36 +422,10 @@ Two things that break a UI deployment regardless of host:
 
 ### A question, from browser to answer
 
-```
-Browser
-  │  HTTPS
-  ▼
-CloudFront (UI)  ──▶ S3 static bundle
-  │
-  │  fetch(NEXT_PUBLIC_API_URL)   ← inlined at build time
-  ▼
-CloudFront (API)  ──HTTP + X-Origin-Verify──▶ ALB ──▶ ECS task
-  │                                            │
-  │                            listener rule: secret header or 403
-  │                            security group: CloudFront prefix list only
-  ▼
-FastAPI  ──run_in_threadpool──▶ MultiAgentRAG
-  │
-  ├─ Supervisor      route + rewrite            (cheap model)
-  ├─ Researcher      RRF in one SQL statement   (RDS, no model call)
-  ├─ Cohere rerank   cross-encoder
-  ├─ Answerability   can this be answered?      (cheap model)
-  ├─ Analyst         grounded answer            (full model)
-  ├─ Critic          verify claims              (cheap model)
-  └─ Compliance      guardrails + audit row     (no model)
-  │
-  ▼
-answer + citations  ──▶ query_audit (append-only)
-```
-
-Every hop is deliberate: HTTPS at both edges, the ALB unreachable except through
-CloudFront, the blocking agent off the event loop, and the audit row written
-before the response returns.
+Moved to [`ARCHITECTURE.md` §3](ARCHITECTURE.md), which walks the request
+through every layer that now exists -- WAF, authentication, scopes, rate
+limiting, the graph, memory, metrics and tracing -- with the file that does
+each step. The diagram that used to live here predated most of them.
 
 ### A deploy, from push to running
 

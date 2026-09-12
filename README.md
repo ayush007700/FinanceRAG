@@ -86,7 +86,8 @@ measures quality.
 **Prerequisites:** Python 3.11+, Docker, an OpenAI key.
 
 ```bash
-cp .env.example .env          # set OPENAI_API_KEY (COHERE_API_KEY recommended)
+
+cp .env.example .env
 
 docker compose up -d postgres redis
 pip install -e ".[dev]"
@@ -410,13 +411,14 @@ cd web && npm install && npm run dev     # local, against API on :8000
 
 ## Documentation
 
-|                                                              |                                                                                                                   |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)           | Step-by-step deploy and teardown: tfvars, where every GitHub secret and variable comes from, indexing, gotchas    |
-| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 32 war stories with real numbers         |
-| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, IAM identities, Terraform patterns, CI/CD bootstrap, UI hosting        |
-| [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion                                                             |
-| [`docs/INTERVIEW_QA.md`](docs/INTERVIEW_QA.md)               | Trade-offs and scenarios, worked through with answers — what each decision cost, and six incidents from this repo |
+|                                                              |                                                                                                                                                                         |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)               | **Start here.** One map of the whole system, every path through it with the file that does each step, the ten-minute walkthrough, and every interview question by layer |
+| [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)           | Step-by-step deploy and teardown: tfvars, where every GitHub secret and variable comes from, indexing, gotchas                                                          |
+| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 32 war stories with real numbers                                                               |
+| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, IAM identities, Terraform patterns, CI/CD bootstrap, UI hosting                                                              |
+| [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion                                                                                                                   |
+| [`docs/INTERVIEW_QA.md`](docs/INTERVIEW_QA.md)               | Trade-offs and scenarios, worked through with answers — what each decision cost, and six incidents from this repo                                                       |
 
 ## Project layout
 

@@ -548,5 +548,6 @@ topic. They changed state and told nobody.
 
 ## 10. Related
 
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the whole system on one page, and every path through it
 - [`AWS_AND_TERRAFORM.md`](AWS_AND_TERRAFORM.md) — infrastructure, cost engineering, IaC questions
 - [`../README.md`](../README.md) — running it locally
