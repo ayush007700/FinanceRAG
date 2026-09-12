@@ -15,6 +15,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # Same rule as npm: majors are migrations, bumped by hand.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       # One PR for the LangChain family, which releases in lockstep and breaks
       # when versions drift apart. Reviewing them separately is worse than
@@ -40,16 +44,12 @@ updates:
         patterns: ["@types/*", "eslint*", "@eslint/*", "typescript", "postcss", "tailwindcss"]
         update-types: ["minor", "patch"]
     ignore:
-      # Majors of the framework and the compiler are migrations, not updates.
-      # They arrive as a PR nobody can merge and sit open until closed. Bump
-      # these by hand when the migration is planned.
-      - dependency-name: "next"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-dom"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "typescript"
+      # No majors, for anything. The first week produced vitest 3 -> 5, which
+      # swapped the transformer and broke both the tests and the build, and
+      # eslint-config-next 16 against next 15. A major is a migration with
+      # release notes to read; it is bumped by hand when someone has read
+      # them. Security advisories bypass this and still open a PR.
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
     labels: ["dependencies", "ui"]
 
