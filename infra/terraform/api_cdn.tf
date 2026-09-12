@@ -17,6 +17,8 @@ resource "random_password" "origin_verify" {
 }
 
 resource "aws_cloudfront_distribution" "api" {
+  web_acl_id = var.enable_waf ? aws_wafv2_web_acl.edge[0].arn : null
+
   enabled     = true
   comment     = "${var.project_name} API"
   price_class = "PriceClass_100"
@@ -26,9 +28,14 @@ resource "aws_cloudfront_distribution" "api" {
     origin_id   = "api-alb"
 
     custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
+      http_port  = 80
+      https_port = 443
+      # HTTPS to the origin as soon as the ALB has a certificate. Without one
+      # the ALB's default DNS name has nothing valid to present, so the hop
+      # stays HTTP -- locked to the CloudFront prefix list and a shared header,
+      # but plaintext across AWS's network. Setting acm_certificate_arn closes
+      # it; nothing else has to change.
+      origin_protocol_policy = var.acm_certificate_arn == "" ? "http-only" : "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
       # Answers take seconds: routing, retrieval, generation and verification.
       # The default 30s would cut off legitimate responses.
