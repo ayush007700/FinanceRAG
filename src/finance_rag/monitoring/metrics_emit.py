@@ -6,11 +6,23 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from finance_rag.config import get_settings
 from finance_rag.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from prometheus_client import Counter, Histogram
+
+# Declared before the try so both branches agree on the type. Without this
+# the try branch infers `Counter` and the except branch's None is an error.
+REQUESTS: Counter | None
+LATENCY: Histogram | None
+RETRIEVAL_COSINE: Histogram | None
+GUARDRAIL_BLOCKS: Counter | None
+HALLUCINATED_CITATIONS: Counter | None
 
 try:
     from prometheus_client import Counter, Histogram
@@ -115,7 +127,7 @@ def track_request(endpoint: str) -> Iterator[dict]:
 
         # Prometheus: in-process, pulled by whatever scrapes /metrics. In the
         # AWS deployment nothing does, so these are for local docker compose.
-        if REQUESTS is not None:
+        if REQUESTS is not None and LATENCY is not None:
             REQUESTS.labels(endpoint=endpoint, status=status).inc()
             LATENCY.labels(endpoint=endpoint).observe(elapsed)
         if meta.get("top_cosine") is not None and RETRIEVAL_COSINE is not None:

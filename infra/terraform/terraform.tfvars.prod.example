@@ -1,0 +1,79 @@
+# Production profile.
+#
+# The defaults in variables.tf are a demo profile: single-AZ, one task, no
+# final snapshot, no WAF, no tracing. Every one of those is a deliberate cost
+# choice for a stack that gets destroyed between demos, and every one is the
+# wrong choice for a stack that people depend on. This file is the other
+# profile, with the reason beside each line.
+#
+#   cp terraform.tfvars.prod.example terraform.tfvars   # then fill in secrets
+#
+# Rough cost delta over the demo profile: RDS doubles (~$13 -> ~$26 for
+# Multi-AZ), a second task (~$8), WAF (~$10), tracing sidecar (negligible).
+# Roughly $41/month -> ~$85/month. The NAT gateway is still off; see
+# AWS_AND_TERRAFORM.md §2 for what that trades.
+
+aws_region   = "ap-south-1"
+project_name = "source-advisors-finance-rag"
+
+# --- secrets: fill these in ------------------------------------------------
+openai_api_key = ""
+cohere_api_key = ""
+db_password    = ""
+auth_api_keys  = "ci:default:ask|read:<40-char-secret>,prom:default:metrics:<40-char-secret>"
+auth_enabled   = true
+alarm_email    = ""
+github_org_repo = ""
+container_image = ""
+
+# --- availability ------------------------------------------------------------
+
+# A standby in a second AZ, with synchronous replication and automatic
+# failover. Without it an AZ event or a maintenance reboot is downtime for
+# every request; with it, ~60 seconds of failover. Doubles the RDS line.
+db_multi_az = true
+
+# Two tasks so a deploy, a task crash, or an AZ event leaves one serving.
+# desired_count = 1 means every rolling deploy has a moment with zero healthy
+# targets. Autoscaling raises this under load; this is the floor.
+desired_count = 2
+
+# --- durability -------------------------------------------------------------
+
+# Point-in-time recovery window. Seven days covers "we noticed on Monday
+# what broke on Friday"; fourteen covers a two-week holiday. Backups are
+# stored at S3 rates and cost little.
+db_backup_retention_days = 14
+
+# `terraform destroy` takes a final snapshot rather than discarding the data.
+# In a demo the data is the corpus, which is in git; in production it is
+# every audit row and every conversation, which is not.
+db_skip_final_snapshot = false
+
+# The API refuses to delete the instance at all until this is flipped off
+# first. Two deliberate steps between an operator and the data.
+db_deletion_protection = true
+
+# --- edge -------------------------------------------------------------------
+
+# Rate limiting and managed threat rules at CloudFront, before the ALB and
+# before a task spends CPU rejecting a request. The application limiter is
+# per credential; this is per IP and pre-authentication.
+enable_waf = true
+
+# Set this and CloudFront talks to the ALB over TLS instead of HTTP inside
+# AWS's network. Needs a domain you control and a certificate in ACM for it;
+# the ALB's default DNS name cannot present a valid certificate. See the
+# runbook for the two-step of issuing the cert and pointing DNS.
+# acm_certificate_arn = "arn:aws:acm:ap-south-1:123456789012:certificate/..."
+
+# --- observability -----------------------------------------------------------
+
+# The ADOT collector as a sidecar, forwarding the API's spans to X-Ray. A
+# request becomes a timeline of router, embedding, rerank and generation
+# rather than one latency number.
+enable_tracing = true
+
+# --- identity ---------------------------------------------------------------
+
+enable_cognito = true

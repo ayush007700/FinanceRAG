@@ -45,6 +45,12 @@ variable "auth_api_keys" {
   default     = ""
 }
 
+variable "enable_tracing" {
+  type        = bool
+  default     = false
+  description = "Run the ADOT collector as a sidecar and export the API's OpenTelemetry spans to X-Ray. ~64 CPU units and 128 MiB per task; X-Ray's free tier covers 100k traces/month."
+}
+
 variable "auth_jwt" {
   type = object({
     jwks_url     = string

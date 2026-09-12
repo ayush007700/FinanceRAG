@@ -300,7 +300,7 @@ class PgVectorStore:
         """
         settings = self.settings
         scope = _scope_predicates(as_of)
-        params = {
+        params: dict[str, Any] = {
             "qvec": to_vector_literal(embedding),
             "qtext": query_text,
             "service_line": service_line,

@@ -65,6 +65,28 @@ resource "aws_iam_role" "ecs_task" {
   })
 }
 
+# The collector runs as a container in the task, so it uses the task role.
+# Write-only: it puts trace segments and telemetry, nothing else.
+resource "aws_iam_role_policy" "task_xray" {
+  count = var.enable_tracing ? 1 : 0
+  name  = "${var.project_name}-task-xray"
+  role  = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "xray:PutTraceSegments",
+        "xray:PutTelemetryRecords",
+        "xray:GetSamplingRules",
+        "xray:GetSamplingTargets",
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
 resource "aws_iam_role_policy" "task_cloudwatch" {
   name = "${var.project_name}-cw"
   role = aws_iam_role.ecs_task.id
@@ -96,7 +118,7 @@ resource "aws_ecs_task_definition" "api" {
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
-  container_definitions = jsonencode([
+  container_definitions = jsonencode(concat([
     {
       name      = "api"
       image     = local.image
@@ -126,6 +148,10 @@ resource "aws_ecs_task_definition" "api" {
         { name = "AUTH_JWT_AUDIENCE", value = local.auth_jwt_effective == null ? "" : local.auth_jwt_effective.audience },
         { name = "AUTH_JWT_ORG_CLAIM", value = local.auth_jwt_effective == null ? "org_id" : local.auth_jwt_effective.org_claim },
         { name = "AUTH_JWT_SCOPES_CLAIM", value = local.auth_jwt_effective == null ? "scope" : local.auth_jwt_effective.scopes_claim },
+        # Empty leaves tracing off in the app. With the sidecar present this is
+        # localhost: containers in one Fargate task share a network namespace.
+        { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.enable_tracing ? "http://localhost:4318" : "" },
+        { name = "OTEL_SERVICE_NAME", value = "${var.project_name}-api" },
         # Indexing is dispatched to its own task; running it in this container
         # exceeds the memory limit and dies with exit 137.
         { name = "INDEX_RUNNER", value = "ecs" },
@@ -182,7 +208,44 @@ resource "aws_ecs_task_definition" "api" {
         startPeriod = 40
       }
     }
-  ])
+    ],
+    # ---------------------------------------------------------------------
+    # Tracing sidecar: the AWS Distro for OpenTelemetry collector.
+    #
+    # The app has exported OTLP spans since tracing.py landed, to whatever
+    # OTEL_EXPORTER_OTLP_ENDPOINT names. Nothing was listening. This is the
+    # listener: it receives spans on localhost:4318 and forwards them to
+    # X-Ray, where a request becomes a timeline -- router call, embedding,
+    # rerank, generation -- instead of one latency number. The 504 that took
+    # two and a half minutes on the embeddings step is exactly the kind of
+    # thing this shows and CloudWatch metrics cannot.
+    #
+    # Not essential: a collector that dies must not take the API with it.
+    # Tracing is diagnostics, and the app already fails open when the
+    # exporter is unreachable. ecs-default-config ships in the image and
+    # does OTLP -> X-Ray plus ECS container metrics -> CloudWatch.
+    # ---------------------------------------------------------------------
+    var.enable_tracing ? [{
+      name      = "aws-otel-collector"
+      image     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
+      essential = false
+      cpu       = 64
+      memory    = 128
+      command   = ["--config=/etc/ecs/ecs-default-config.yaml"]
+      portMappings = [
+        { containerPort = 4317, protocol = "tcp" },
+        { containerPort = 4318, protocol = "tcp" },
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.api.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "otel"
+        }
+      }
+    }] : []
+  ))
 }
 
 # One-shot migration task.

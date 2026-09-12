@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from typing import NotRequired, TypedDict
 
 from finance_rag.models import RetrievalMetrics, RetrievedChunk
 
@@ -167,11 +168,22 @@ def evaluate_labeled(
     )
 
 
+class CitationMetrics(TypedDict):
+    """Each key with its own type. A ``dict[str, float | list[str]]`` made
+    every reader narrow the union at the call site, and four of them did not."""
+
+    citation_grounding: float
+    hallucinated_citations: list[str]
+    num_cited: float
+    citation_precision: NotRequired[float]
+    citation_recall: NotRequired[float]
+
+
 def citation_metrics(
     cited_ids: Sequence[str],
     retrieved_ids: Sequence[str],
     relevant_ids: set[str] | None = None,
-) -> dict[str, float | list[str]]:
+) -> CitationMetrics:
     """Grounding quality of the citations the model actually emitted.
 
     ``hallucinated`` are cited ids absent from the retrieved set -- ids the model
@@ -184,7 +196,7 @@ def citation_metrics(
     hallucinated = [cid for cid in cited if cid not in retrieved]
     grounded = [cid for cid in cited if cid in retrieved]
 
-    result: dict[str, float | list[str]] = {
+    result: CitationMetrics = {
         "citation_grounding": (len(grounded) / len(cited)) if cited else 0.0,
         "hallucinated_citations": hallucinated,
         "num_cited": float(len(cited)),

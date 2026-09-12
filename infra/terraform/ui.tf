@@ -38,6 +38,8 @@ resource "aws_cloudfront_origin_access_control" "ui" {
 }
 
 resource "aws_cloudfront_distribution" "ui" {
+  web_acl_id = var.enable_waf ? aws_wafv2_web_acl.edge[0].arn : null
+
   enabled             = true
   default_root_object = "index.html"
   comment             = "${var.project_name} UI"

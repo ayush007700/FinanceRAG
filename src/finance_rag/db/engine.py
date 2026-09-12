@@ -24,6 +24,9 @@ def get_engine() -> Engine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout,
+        # Bounds the connect, not the query. Without it an unreachable host is
+        # reported by the OS's TCP timeout, minutes later.
+        connect_args={"connect_timeout": settings.db_connect_timeout},
         pool_pre_ping=True,  # survives RDS failover / idle disconnects
         echo=settings.db_echo,
         future=True,

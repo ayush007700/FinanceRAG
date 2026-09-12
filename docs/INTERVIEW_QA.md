@@ -239,6 +239,66 @@ through CloudFront by anyone. Traffic shape is not user data, but it is
 reconnaissance, and "everything except this one" is the sentence that ends up
 in an incident report.
 
+### Your API already rate-limits. Why add a WAF?
+
+Because the application limiter runs *after* the request has reached a task,
+been authenticated and incremented a counter. Everything before that point is
+paid for: Fargate CPU, an ALB connection, a TLS handshake. An unauthenticated
+flood never meets the per-credential limiter and costs the same to reject as
+to serve.
+
+WAF is per-IP, pre-authentication, at the edge -- the layer the application
+cannot be. The managed rule groups are the other half: OWASP-class threats
+and known-bad inputs, maintained by AWS against new CVE classes, where a
+hand-written rule set is only as current as its last review.
+
+**The follow-up:** *"Why did you turn one rule down to count?"* The 8 KB body
+limit, because a question with an attached image is larger by design. Knowing
+which managed rule collides with your traffic is the difference between having
+a WAF and having enabled one.
+
+### What does a trace show that a latency metric cannot?
+
+*Where.* CloudWatch said a request took 160 seconds. Reading log timestamps by
+hand said 82 of them were one embeddings call. A trace says that without the
+reading: each pipeline stage is a span, and the slow one is the long bar.
+
+**Two things that had to be true for X-Ray to show anything:** it requires the
+first four bytes of a trace id to be a timestamp and silently drops the rest,
+so the SDK's default random ids produce spans that are exported, accepted by
+the collector, and never appear. And the collector is a non-essential sidecar,
+because tracing is diagnostics and a diagnostics crash must not take down the
+thing it diagnoses.
+
+**The follow-up:** *"Why not just LangSmith?"* It traces the agent -- prompts,
+tokens, tool calls. It does not see the HTTP request, the database round trip
+or the rerank call. Two tools for two layers; the trace id is what joins them.
+
+### What is your RTO, and how do you know?
+
+**RPO ≤ 5 minutes** from point-in-time recovery; **RTO ~30 minutes** from a
+restore plus a deploy. The honest part is the second question: the number in
+the table is a hypothesis until the restore has been run. The runbook has the
+procedure and a quarterly drill, and the wall-clock time from the drill is the
+RTO actually held.
+
+**Name what is not covered.** Cognito users are not backed up -- the pool's
+configuration is Terraform, its people are not -- and for a handful of
+internal accounts, recreating them is the plan. Saying so is worth more than
+a table with no gaps.
+
+### Why are the production settings a separate file rather than the defaults?
+
+Because the defaults are a stack that gets destroyed between demos, and every
+production setting costs money whether or not anyone is using it: Multi-AZ
+doubles RDS, a second task, a WAF. Defaulting to production means every
+throwaway apply pays for availability nobody needs.
+
+The file is the answer to "why is this single-AZ?": it is not, in production,
+and here is the line and the reason. A demo default with no documented
+alternative is a gap; one with the alternative written down beside it is a
+choice.
+
 ### How do you rate limit a service that autoscales?
 
 **The trap:** an in-process counter. With N tasks behind an ALB, each task
@@ -347,6 +407,12 @@ countable, assignable, and visibly shrinking or not.
 The general principle: **a gate that cannot fail is not a gate**, but a gate you
 cannot turn on today is not one either. Scope it to what you can enforce now and
 make the exceptions legible.
+
+**Then pay it down, and say what paying it found.** Here: a `TypedDict` where a
+heterogeneous dict had been, which then caught a key nobody had declared; and a
+histogram used under a guard that checked a different global. Neither was
+visible while the module was excluded. The debt list going to zero is a fact;
+the two bugs it surfaced on the way are the story.
 
 ---
 

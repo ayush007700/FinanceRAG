@@ -390,9 +390,27 @@ alongside the ECS and ALB panels.
 ### Alarms
 
 Three, all publishing to the SNS topic your `alarm_email` subscribes to:
-ALB 5xx rate, ECS CPU, and `RequestLatencyMs` p95. Confirm the SNS
-subscription from the email AWS sends after the first apply, or the alarms
-fire into nothing.
+ALB 5xx rate, ECS CPU, and `RequestLatencyMs` p95.
+
+**The subscription is inert until confirmed.** After the first apply, AWS
+emails `alarm_email` from `no-reply@sns.amazonaws.com` with the subject
+*AWS Notification - Subscription Confirmation*. It lands in spam more often
+than not, and until the link in it is clicked the alarms fire into nothing.
+Check:
+
+```bash
+aws sns list-subscriptions-by-topic \
+  --topic-arn $(terraform output -raw alarm_topic_arn) \
+  --query "Subscriptions[].[Endpoint,SubscriptionArn]" --output text
+```
+
+`PendingConfirmation` means not yet. If the email is gone, resubscribing sends
+a fresh one:
+
+```bash
+aws sns subscribe --topic-arn $(terraform output -raw alarm_topic_arn) \
+  --protocol email --notification-endpoint you@example.com
+```
 
 ### What `/metrics` is for
 
@@ -401,6 +419,182 @@ AWS nothing scrapes it: the same five signals are pushed to CloudWatch, which
 is what the dashboard and alarms read. `/metrics` and `infra/prometheus/` are
 for running Prometheus locally against `docker compose`. Grafana is not part
 of this stack; CloudWatch's dashboard is the viewer.
+
+---
+
+## Going to production
+
+The defaults are a demo profile. `terraform.tfvars.prod.example` is the other
+one, with the reason beside each setting. What each line buys, and what it
+costs, in the order an outage would find them:
+
+| setting | demo | prod | why it is required |
+|---|---|---|---|
+| `db_multi_az` | false | **true** | An AZ event or a maintenance reboot is downtime for every request. With a standby it is ~60s of failover. Doubles the RDS line. |
+| `desired_count` | 1 | **2** | With one task, every rolling deploy has a moment with zero healthy targets. Two is the floor; autoscaling raises it. |
+| `db_deletion_protection` | false | **true** | Two deliberate steps between an operator and the data, not one. |
+| `db_skip_final_snapshot` | true | **false** | `destroy` keeps the data. In a demo the data is the corpus, which is in git. In production it is every audit row. |
+| `db_backup_retention_days` | 7 | **14** | Point-in-time recovery window. Seven covers "noticed Monday, broke Friday"; fourteen covers a holiday. |
+| `enable_waf` | false | **true** | Per-IP rate limiting and managed threat rules at the edge, *before* a task spends CPU rejecting a request. See below. |
+| `enable_tracing` | false | **true** | A request becomes a timeline instead of one number. See below. |
+| `acm_certificate_arn` | "" | set | TLS from CloudFront to the ALB. Needs a domain. See below. |
+
+Rough delta: ~$41/month → ~$85/month. The NAT gateway stays off either way.
+
+### WAF — why the application's rate limiter is not enough
+
+The API limits requests per credential. That limiter runs *inside* the task:
+a request has to reach Fargate, be authenticated, and increment a counter
+before it can be refused. An unauthenticated flood -- credential stuffing on
+`/v1/ask`, a bot on `/health` -- never meets that limiter and costs CPU on
+every request it rejects.
+
+WAF sits at the CloudFront edge. It rate-limits per IP before authentication,
+and the AWS managed rule groups (IP reputation, OWASP common threats,
+known-bad inputs) are maintained against new CVE classes without anyone here
+writing a rule. It must be created in `us-east-1` regardless of region; that
+is a CloudFront constraint, and `versions.tf` carries the aliased provider for
+it.
+
+```hcl
+enable_waf = true
+```
+
+One managed rule is downgraded to *count*: the 8 KB body-size limit, because a
+question with an attached image is larger than that by design. The API's own
+input limit is the control there.
+
+### TLS to the origin — why it needs a domain
+
+CloudFront to the ALB is HTTP. Locked to the CloudFront prefix list and a
+shared secret header, but plaintext across AWS's network. The fix is a
+certificate on the ALB, and the ALB's default DNS name cannot present a valid
+one -- only a name you control can.
+
+1. Register or delegate a domain; create a hosted zone in Route 53.
+2. **ACM → Request certificate** for `api.yourdomain.com` in `ap-south-1`,
+   DNS validation, add the CNAME it gives you.
+3. `acm_certificate_arn = "<arn>"` in tfvars, `terraform apply`. The ALB gains
+   an HTTPS listener and CloudFront switches to `https-only` to the origin.
+4. Route 53: `api.yourdomain.com` → the ALB. CloudFront's origin can then be
+   that name rather than the ALB's default.
+
+Until step 3, the `.trivyignore.yaml` entry for `AVD-AWS-0054` is the record
+that this is known. Delete the entry when the cert lands.
+
+### Tracing — why CloudWatch metrics are not enough
+
+CloudWatch says a request took 160 seconds. It cannot say *where*. The 504 in
+this repo's history spent 82 seconds waiting on one embeddings call, and the
+only way to see that was reading log timestamps by hand.
+
+With `enable_tracing = true` the ADOT collector runs as a sidecar in the API
+task, the app exports OpenTelemetry spans to it on `localhost:4318`, and it
+forwards them to X-Ray. Each pipeline stage -- supervisor, researcher,
+answerability, analyst, critic, compliance -- is its own span, so a trace
+reads as the pipeline with each bar as long as it took.
+
+**X-Ray → Traces**, filter `service("source-advisors-finance-rag-api")`.
+
+Two things that had to be true for spans to appear at all: X-Ray requires the
+first four bytes of a trace id to be a timestamp and silently drops the rest,
+so the app uses the AWS id generator; and the collector is `essential = false`
+so a collector crash does not take the API down -- tracing is diagnostics.
+
+---
+
+## Disaster recovery
+
+What can be lost, what protects it, and how long each takes to get back.
+
+### What holds state
+
+| store | contains | protection |
+|---|---|---|
+| **RDS** | corpus chunks + embeddings, audit trail, conversation memory, jobs, eval runs | automated backups, point-in-time recovery |
+| **S3 uploads** | documents uploaded through `/v1/upload` | versioning |
+| **S3 ui** | the built bundle | rebuilt by CD from git; nothing to protect |
+| **SSM** | secrets | in Terraform; re-applied from tfvars |
+| **Terraform state** | the record of everything above | versioned S3 bucket, 90-day version history |
+
+Everything else -- ECS, ALB, CloudFront, Cognito's *configuration* -- is
+`terraform apply` from nothing. Cognito *users* are not: see below.
+
+### Objectives
+
+| | demo profile | prod profile |
+|---|---|---|
+| **RPO** (data you can lose) | ≤ 5 min — PITR granularity | ≤ 5 min |
+| **RTO** (time to serve again) | ~30 min — restore + apply + deploy | ~30 min; AZ failure alone: ~60 s via Multi-AZ |
+| Backup retention | 7 days | 14 days |
+
+The RTO is dominated by RDS restore (~10–15 min) and a CD run (~8 min). The
+corpus can also be re-indexed from git in ~2 min, which is faster than a
+restore if the audit trail is not needed.
+
+### Restore RDS
+
+Point-in-time, to a **new** instance. The original is left alone until the
+restored one is confirmed good.
+
+```bash
+SRC=source-advisors-finance-rag-db
+aws rds restore-db-instance-to-point-in-time \
+  --source-db-instance-identifier "$SRC" \
+  --target-db-instance-identifier "$SRC-restored" \
+  --restore-time 2026-09-11T10:00:00Z \
+  --db-subnet-group-name $(aws rds describe-db-instances --db-instance-identifier "$SRC" \
+      --query "DBInstances[0].DBSubnetGroup.DBSubnetGroupName" --output text) \
+  --vpc-security-group-ids $(aws rds describe-db-instances --db-instance-identifier "$SRC" \
+      --query "DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId" --output text)
+
+aws rds wait db-instance-available --db-instance-identifier "$SRC-restored"
+```
+
+Then point the stack at it. The endpoint is in the `DATABASE_URL` SSM
+parameter Terraform manages, so the clean path is to make Terraform adopt the
+restored instance rather than editing the parameter by hand:
+
+```bash
+cd infra/terraform
+terraform state rm aws_db_instance.main
+terraform import aws_db_instance.main "$SRC-restored"
+terraform apply          # rewrites DATABASE_URL; plan shows only that
+```
+
+Then a deploy (merge to `master`, or **Actions → CD → Run workflow**) so the
+tasks start with the new parameter. `curl <api_cdn_url>/health` →
+`"database": true`, and an ask returns a cited answer.
+
+### Restore an uploaded document
+
+Versioning is on. A deleted or overwritten object is a version away:
+
+```bash
+aws s3api list-object-versions --bucket <uploads-bucket> --prefix default/ \
+  --query "Versions[?IsLatest==\`false\`].[Key,VersionId,LastModified]" --output table
+aws s3api copy-object --bucket <uploads-bucket> --key <key> \
+  --copy-source "<uploads-bucket>/<key>?versionId=<id>"
+```
+
+### What is not backed up
+
+- **Cognito users.** The pool's configuration is Terraform; its users are
+  not, and there is no built-in export. For a handful of internal users,
+  recreating them from Step 5c is the plan. Beyond that, a scheduled
+  `list-users` to S3 is the cheapest backup.
+- **Redis.** A cache. Losing it costs one cold request per query.
+
+### The drill
+
+A restore procedure nobody has run is a hypothesis. Quarterly, in the demo
+profile where it costs a few cents:
+
+1. Restore to `-restored` as above, from one hour ago.
+2. `psql` into it from a task -- or simpler, point a throwaway `terraform
+   workspace` at it -- and check `select count(*) from chunks` matches.
+3. Delete the restored instance. Note the wall-clock time; that is the RTO
+   you actually have, not the one in the table.
 
 ---
 

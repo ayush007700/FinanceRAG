@@ -58,6 +58,15 @@ class SemanticCache:
                 logger.warning("redis_unavailable", error=str(exc))
                 self._redis = None
 
+    @staticmethod
+    def _text(value: bytes | str | None) -> str | None:
+        """Redis is opened with decode_responses=True, so values arrive as str;
+        the client's stubs still say bytes | str. Decoding here keeps every
+        reader honest and keeps working if that flag is ever dropped."""
+        if value is None:
+            return None
+        return value.decode("utf-8") if isinstance(value, bytes) else value
+
     @property
     def embedder(self) -> EmbeddingService:
         if self._embedder is None:
@@ -71,7 +80,7 @@ class SemanticCache:
     def corpus_version(self) -> str:
         if not self._redis:
             return "0"
-        return self._redis.get(f"{PREFIX}:corpus_version") or "0"
+        return self._text(self._redis.get(f"{PREFIX}:corpus_version")) or "0"
 
     def bump_corpus_version(self) -> str:
         if not self._redis:
@@ -124,18 +133,19 @@ class SemanticCache:
         version = self.corpus_version()
         exact_id = _hash_key(query, service_line, version)
         exact_key = f"{PREFIX}:exact:{exact_id}"
-        cached = self._redis.get(exact_key)
+        cached = self._text(self._redis.get(exact_key))
         if cached:
             logger.info("cache_hit_exact", key=exact_id)
             return self._deserialize(cached, "exact")
 
         # Semantic: compare against recent entries
         emb = query_embedding or self.embedder.embed_query(query)
-        ids = list(self._redis.smembers(f"{PREFIX}:sem:ids"))[: self.settings.cache_semantic_max_scan]
+        members = self._redis.smembers(f"{PREFIX}:sem:ids")
+        ids = [self._text(m) or "" for m in members][: self.settings.cache_semantic_max_scan]
         best_id = None
         best_score = -1.0
         for entry_id in ids:
-            vec_raw = self._redis.get(f"{PREFIX}:sem:{entry_id}:vec")
+            vec_raw = self._text(self._redis.get(f"{PREFIX}:sem:{entry_id}:vec"))
             if not vec_raw:
                 continue
             vec = json.loads(vec_raw)
@@ -145,7 +155,7 @@ class SemanticCache:
                 best_id = entry_id
 
         if best_id and best_score >= self.settings.cache_semantic_threshold:
-            payload = self._redis.get(f"{PREFIX}:sem:{best_id}:payload")
+            payload = self._text(self._redis.get(f"{PREFIX}:sem:{best_id}:payload"))
             if payload:
                 logger.info("cache_hit_semantic", key=best_id, score=best_score)
                 return self._deserialize(payload, "semantic")
