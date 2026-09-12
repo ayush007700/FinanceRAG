@@ -341,15 +341,18 @@ carry `|| true`.
 **mypy** was a dev dependency that never ran, which is the same failure mode as
 an exported function nobody calls: present, believed, doing nothing. Turning it
 on found 29 errors across 8 modules. Rather than `|| true` or a weekend of
-annotation, those modules are listed in `[tool.mypy]` overrides **with their
-error counts**, so the debt is visible and shrinkable while every other module
-is genuinely checked — a new file or a regression in a clean module fails CI.
+annotation, those modules were first listed in `[tool.mypy]` overrides **with
+their error counts**, so the debt was visible while every other module was
+genuinely checked.
 
-Most of the 29 are third-party interface friction rather than latent bugs: the
-openai client's `**kwargs` overloads, redis returning `bytes | str` without
-`decode_responses`, langchain's union-typed message content. Fixing them means
-changing how those libraries are called, which is worth doing deliberately
-rather than inside the change that turned the gate on.
+The debt is now paid, and each fix was at the source rather than a cast: a
+`TypedDict` where a heterogeneous `dict[str, float | list[str]]` made four
+readers narrow a union; decoding at the Redis boundary instead of trusting a
+flag; two explicit client calls instead of a `**kwargs` dict that erased the
+overloads. Paying it found two things the grandfathering had hidden -- a key
+the `TypedDict` did not know about, and a histogram used under a guard that
+checked a different global. The override list is empty, and the comment
+beside it says what to write there if a module ever has to go back.
 
 **Lock drift** re-resolves `pyproject.toml` and diffs it against
 `requirements.lock`. The image installs from the lock, so a stale lock builds

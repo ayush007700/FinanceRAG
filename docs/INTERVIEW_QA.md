@@ -408,6 +408,12 @@ The general principle: **a gate that cannot fail is not a gate**, but a gate you
 cannot turn on today is not one either. Scope it to what you can enforce now and
 make the exceptions legible.
 
+**Then pay it down, and say what paying it found.** Here: a `TypedDict` where a
+heterogeneous dict had been, which then caught a key nobody had declared; and a
+histogram used under a guard that checked a different global. Neither was
+visible while the module was excluded. The debt list going to zero is a fact;
+the two bugs it surfaced on the way are the story.
+
 ---
 
 ## Part 2 — Scenarios
