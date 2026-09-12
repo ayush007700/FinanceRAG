@@ -42,8 +42,28 @@ from finance_rag.metrics.retrieval_metrics import citation_metrics, compute_onli
 from finance_rag.models import Citation, RAGResponse, RetrievalMetrics, RetrievedChunk
 from finance_rag.observability import callback_handler
 from finance_rag.retrieval import HybridRetriever
+from finance_rag.tracing import get_tracer
 
 logger = get_logger(__name__)
+# Stage spans. A no-op tracer when no provider is installed, so the cost
+# without tracing is a function call per stage.
+_tracer = get_tracer(__name__)
+
+
+def _traced(name: str, fn):
+    """Run a graph node inside a span carrying the route it chose, if any."""
+
+    def wrapped(state):
+        with _tracer.start_as_current_span(name) as span:
+            out = fn(state)
+            if isinstance(out, dict):
+                for key in ("route", "answerable", "critic_approved", "refused"):
+                    if key in out:
+                        span.set_attribute(f"finance_rag.{key}", str(out[key]))
+            return out
+
+    wrapped.__name__ = getattr(fn, "__name__", name)
+    return wrapped
 
 SYSTEM_PROMPT = """You are FinanceRAG, an internal advisory assistant for Source Advisors,
 a USA & UK specialised tax consulting firm (R&D Tax Credit, Cost Segregation,
@@ -153,13 +173,18 @@ class MultiAgentRAG:
 
     def _build_graph(self):
         graph = StateGraph(AgentState)
-        graph.add_node("supervisor", self.route)
-        graph.add_node("researcher", self.research)
-        graph.add_node("web_search", self.search_web)
-        graph.add_node("answerability", self.check_answerability)
-        graph.add_node("analyst", self.analyse)
-        graph.add_node("critic", self.criticise)
-        graph.add_node("compliance", self.comply)
+        # Each node runs inside a span named for the role, so a trace reads as
+        # the pipeline: supervisor -> researcher -> answerability -> analyst ->
+        # critic -> compliance, each bar as long as it took. Wrapped at
+        # registration rather than inside every method, so adding a node adds
+        # a span without anyone remembering to.
+        graph.add_node("supervisor", _traced("agent.supervisor", self.route))
+        graph.add_node("researcher", _traced("agent.researcher", self.research))
+        graph.add_node("web_search", _traced("agent.web_search", self.search_web))
+        graph.add_node("answerability", _traced("agent.answerability", self.check_answerability))
+        graph.add_node("analyst", _traced("agent.analyst", self.analyse))
+        graph.add_node("critic", _traced("agent.critic", self.criticise))
+        graph.add_node("compliance", _traced("agent.compliance", self.comply))
 
         graph.set_entry_point("supervisor")
         graph.add_conditional_edges(

@@ -61,7 +61,26 @@ def setup_tracing(app: Any | None = None) -> bool:
                 "deployment.environment": settings.app_env,
             }
         )
-        provider = TracerProvider(resource=resource)
+
+        # X-Ray requires the first four bytes of a trace id to be a timestamp
+        # and silently drops traces whose ids are not shaped that way. The
+        # default generator produces random ids, so spans would be exported,
+        # accepted by the collector, and never appear. The AWS generator makes
+        # ids that are valid for both W3C and X-Ray, so it is used whenever it
+        # is installed rather than gated on a "this is AWS" flag. The X-Ray
+        # propagator does the same for the trace header the ALB adds.
+        id_generator = None
+        try:
+            from opentelemetry import propagate
+            from opentelemetry.propagators.aws import AwsXRayPropagator
+            from opentelemetry.sdk.extension.aws.trace import AwsXRayIdGenerator
+
+            id_generator = AwsXRayIdGenerator()
+            propagate.set_global_textmap(AwsXRayPropagator())
+        except ImportError:
+            logger.debug("tracing_xray_extension_absent")
+
+        provider = TracerProvider(resource=resource, id_generator=id_generator)
         # Batched rather than simple: a span export on the request path would
         # add the collector's latency to every response, and a collector that
         # is slow or down would then be an outage rather than a blind spot.
