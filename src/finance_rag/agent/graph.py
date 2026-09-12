@@ -10,6 +10,7 @@ from typing import Any, TypedDict
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from openai import OpenAI
+from pydantic import SecretStr
 
 from finance_rag.cache import SemanticCache
 from finance_rag.config import get_settings
@@ -108,7 +109,9 @@ class FinanceRAGAgent:
         self.llm = ChatOpenAI(
             model=self.settings.openai_chat_model,
             temperature=0,
-            api_key=self.settings.openai_api_key or None,
+            # ChatOpenAI wants a SecretStr, which also keeps the key out of
+            # repr() and any log line that prints the model client.
+            api_key=SecretStr(self.settings.openai_api_key) if self.settings.openai_api_key else None,
         )
         self.openai = OpenAI(api_key=self.settings.openai_api_key or None)
         self.graph = self._build_graph()
@@ -208,7 +211,9 @@ class FinanceRAGAgent:
         )
         try:
             msg = self.llm.invoke(prompt)
-            rewritten = msg.content.strip()
+            # content is str | list[str | dict] across message types; only a
+            # plain string is a rewrite. Anything else falls back to the query.
+            rewritten = msg.content.strip() if isinstance(msg.content, str) else q
         except Exception:  # noqa: BLE001
             rewritten = q
         return {"rewritten_query": rewritten}

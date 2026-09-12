@@ -26,15 +26,16 @@ class EmbeddingService:
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
-        # text-embedding-3-* supports dimensions reduction
-        kwargs = {
-            "model": self.model,
-            "input": list(texts),
-        }
+        # text-embedding-3-* supports dimensions reduction; older models reject
+        # the parameter, so it is passed only when the model accepts it. Two
+        # explicit calls rather than a kwargs dict: the client's overloads type
+        # each parameter, and a dict erases that.
         if self.model.startswith("text-embedding-3"):
-            kwargs["dimensions"] = self.dimensions
-
-        response = self.client.embeddings.create(**kwargs)
+            response = self.client.embeddings.create(
+                model=self.model, input=list(texts), dimensions=self.dimensions
+            )
+        else:
+            response = self.client.embeddings.create(model=self.model, input=list(texts))
         vectors = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
         logger.info("embedded_batch", count=len(vectors), model=self.model)
         return vectors
