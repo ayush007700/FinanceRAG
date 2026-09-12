@@ -17,7 +17,7 @@
 
 import { User, UserManager, WebStorageStateStore } from "oidc-client-ts";
 
-import { clearApiKey, setApiKey } from "./api";
+import { apiKeyKind, clearApiKey, setApiKey } from "./api";
 
 const ISSUER = process.env.NEXT_PUBLIC_OIDC_ISSUER || "";
 const CLIENT_ID = process.env.NEXT_PUBLIC_OIDC_CLIENT_ID || "";
@@ -117,7 +117,7 @@ export async function resume(): Promise<SignedIn | null> {
     // address bar puts it in history and in anything that logs referrers.
     window.history.replaceState({}, "", redirectUri());
     if (!user) return null;
-    setApiKey(tokenOf(user));
+    setApiKey(tokenOf(user), "oidc");
     return describe(user);
   }
 
@@ -130,8 +130,15 @@ export async function resume(): Promise<SignedIn | null> {
   const user = await m.getUser();
   if (!user || user.expired) {
     if (user) await m.removeUser();
+    // The token was copied into the credential slot at sign-in. Removing the
+    // OIDC session without clearing that copy left an expired token where a
+    // key would be: the gate saw "a credential is set", let the visitor
+    // through to a dashboard on which every request 401'd, and the badge
+    // said "API key set". Only an OIDC-sourced credential is cleared here; a
+    // pasted key is the operator's and outlives any provider session.
+    if (apiKeyKind() === "oidc") clearApiKey();
     return null;
   }
-  setApiKey(tokenOf(user));
+  setApiKey(tokenOf(user), "oidc");
   return describe(user);
 }
