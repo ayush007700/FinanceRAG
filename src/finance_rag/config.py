@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=5, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=10, alias="DB_MAX_OVERFLOW")
     db_pool_timeout: int = Field(default=30, alias="DB_POOL_TIMEOUT")
+    # TCP connect timeout to Postgres. psycopg's default is effectively the
+    # OS's -- two minutes on Windows -- which is what every /health probe and
+    # every TestClient lifespan waited out when the database was absent. Ten
+    # seconds is generous for an in-VPC RDS and short enough that "down" is
+    # reported as down rather than hung.
+    db_connect_timeout: int = Field(default=10, alias="DB_CONNECT_TIMEOUT")
     db_echo: bool = Field(default=False, alias="DB_ECHO")
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
