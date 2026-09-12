@@ -146,7 +146,7 @@ Two credential kinds share one gate. **API keys** are for machine clients —
 CI, the eval harness, a proxy. **OIDC bearer tokens** are for people. Both
 resolve to the same `Principal` carrying tenant, scopes and a `subject`: the
 key id for a key, `sub` for a token. That subject is what the audit trail
-records, which turns *"which credential asked this?"* into *"who asked this?"*.
+records, which turns _"which credential asked this?"_ into _"who asked this?"_.
 
 ```
 AUTH_JWT_JWKS_URL=https://cognito-idp.ap-south-1.amazonaws.com/<pool>/.well-known/jwks.json
@@ -174,12 +174,12 @@ things every browser that logs in must know. The token lands in the same
 `sessionStorage` slot the API key would, so nothing downstream distinguishes
 them. Set these as repository **variables** (not secrets) for the CD build:
 
-| variable | example |
-|---|---|
-| `OIDC_ISSUER` | `https://cognito-idp.ap-south-1.amazonaws.com/<pool>` |
-| `OIDC_CLIENT_ID` | the app client id |
-| `OIDC_SCOPES` | `openid profile email` (default) |
-| `OIDC_TOKEN` | `access` (default) or `id` — Cognito needs `id`, see below |
+| variable         | example                                                    |
+| ---------------- | ---------------------------------------------------------- |
+| `OIDC_ISSUER`    | `https://cognito-idp.ap-south-1.amazonaws.com/<pool>`      |
+| `OIDC_CLIENT_ID` | the app client id                                          |
+| `OIDC_SCOPES`    | `openid profile email` (default)                           |
+| `OIDC_TOKEN`     | `access` (default) or `id` — Cognito needs `id`, see below |
 
 Cognito's access tokens carry `client_id` rather than `aud`, and the API pins
 audience. For Cognito, send the ID token (`OIDC_TOKEN=id`) and set
@@ -188,18 +188,18 @@ and need no such workaround.
 
 ### Rate limiting
 
-Authentication says *who* is spending; it does not bound *how much*. Limits are
+Authentication says _who_ is spending; it does not bound _how much_. Limits are
 per credential and per scope, because the scopes differ in what they cost:
 
-| scope | default | why |
-|---|---|---|
-| `ask` | 30 / min | every call spends model budget |
-| `index` | 5 / hour | launches a 2 vCPU task and rewrites the corpus |
-| `read` | 120 / min | touches rows that already exist |
+| scope   | default   | why                                            |
+| ------- | --------- | ---------------------------------------------- |
+| `ask`   | 30 / min  | every call spends model budget                 |
+| `index` | 5 / hour  | launches a 2 vCPU task and rewrites the corpus |
+| `read`  | 120 / min | touches rows that already exist                |
 
 Counters live in Redis when it is configured, because the service autoscales —
 per-process counters would give each task its own limit, so scaling out would
-*raise* the effective limit rather than hold it. Without Redis the limiter falls
+_raise_ the effective limit rather than hold it. Without Redis the limiter falls
 back to per-process counters and says so in the logs. A limiter fault fails
 open: refusing traffic because the counter store is unreachable turns a cost
 control into an outage.
@@ -325,7 +325,7 @@ handler degrades to no tracing, never to no answers.
 Full step-by-step, including where to find every GitHub value:
 **[`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)**
 
-`terraform apply` alone gives you *empty* infrastructure — no image in ECR, no
+`terraform apply` alone gives you _empty_ infrastructure — no image in ECR, no
 schema in RDS, no documents indexed. Four steps, in order, each depending on the
 one before:
 
@@ -354,13 +354,13 @@ Every value below **changes on every recreate**, which is the step people forget
 Read them with `terraform output -raw <name>` (plain `terraform output` masks the
 secret key):
 
-| GitHub | name | terraform output |
-|---|---|---|
-| **Secrets** tab | `AWS_ACCESS_KEY_ID` | `github_actions_access_key_id` |
-| | `AWS_SECRET_ACCESS_KEY` | `github_actions_secret_access_key` |
-| **Variables** tab | `API_BASE_URL` | `api_cdn_url` |
-| | `UI_BUCKET` | `ui_bucket` |
-| | `UI_DISTRIBUTION_ID` | `ui_distribution_id` |
+| GitHub            | name                    | terraform output                   |
+| ----------------- | ----------------------- | ---------------------------------- |
+| **Secrets** tab   | `AWS_ACCESS_KEY_ID`     | `github_actions_access_key_id`     |
+|                   | `AWS_SECRET_ACCESS_KEY` | `github_actions_secret_access_key` |
+| **Variables** tab | `API_BASE_URL`          | `api_cdn_url`                      |
+|                   | `UI_BUCKET`             | `ui_bucket`                        |
+|                   | `UI_DISTRIBUTION_ID`    | `ui_distribution_id`               |
 
 Both live at repo → Settings → **Secrets and variables** → **Actions**, on
 adjacent tabs. Variables are deliberately not secrets: none are sensitive, and
@@ -410,12 +410,12 @@ cd web && npm install && npm run dev     # local, against API on :8000
 
 ## Documentation
 
-|                                                              |                                                                                                           |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)           | Step-by-step deploy and teardown: tfvars, where every GitHub secret and variable comes from, indexing, gotchas |
-| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 32 war stories with real numbers |
-| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, IAM identities, Terraform patterns, CI/CD bootstrap, UI hosting |
-| [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion                                                     |
+|                                                              |                                                                                                                   |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)           | Step-by-step deploy and teardown: tfvars, where every GitHub secret and variable comes from, indexing, gotchas    |
+| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 32 war stories with real numbers         |
+| [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, IAM identities, Terraform patterns, CI/CD bootstrap, UI hosting        |
+| [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md) | Redis semantic cache, LangSmith, multimodal ingestion                                                             |
 | [`docs/INTERVIEW_QA.md`](docs/INTERVIEW_QA.md)               | Trade-offs and scenarios, worked through with answers — what each decision cost, and six incidents from this repo |
 
 ## Project layout
@@ -444,7 +444,7 @@ web/             Next.js UI
 - **Sign-in is opt-in.** `enable_cognito = true` provisions a user pool wired
   to both the API and the UI; the default deployment authenticates with API
   keys only, which is right for machines and means the audit trail cannot say
-  *who* asked. Runbook Step 5.
+  _who_ asked. Runbook Step 5.
 - **Key rotation is a redeploy.** Keys live in one SSM parameter read at task
   start, so revoking one means updating the parameter and restarting the
   service. Fine at this scale; a key table in Postgres is the move when it isn't.
