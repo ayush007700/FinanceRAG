@@ -635,6 +635,92 @@ those two before touching anything else.
 
 ---
 
+## Pausing and resuming
+
+The stack rebuilds from nothing in about fifteen minutes, so between working
+sessions the cheapest state is *not running*. This is the checklist for
+leaving and coming back without losing anything that matters.
+
+### Before `destroy`
+
+1. **Snapshot the database** if there is anything in it you want back. The
+   demo profile skips the final snapshot, so without this the audit rows and
+   conversations go with the instance. A manual snapshot of a 20 GB
+   `t4g.micro` costs about a cent a month.
+
+   ```bash
+   SNAP="finance-rag-pause-$(date +%Y%m%d)"
+   aws rds create-db-snapshot --db-instance-identifier source-advisors-finance-rag-db      --db-snapshot-identifier "$SNAP"
+   aws rds wait db-snapshot-available --db-snapshot-identifier "$SNAP"
+   ```
+
+2. **Keep `terraform.tfvars`.** It is gitignored, it holds every secret, and
+   it is the only copy. Back it up somewhere that is not this directory.
+
+3. Nothing else needs saving. Code is in git, state is in S3, the corpus is
+   in git and re-indexes in two minutes.
+
+### `destroy`
+
+```bash
+cd infra/terraform
+terraform destroy      # ~15 min; CloudFront is most of it
+```
+
+### What is gone, and what is not
+
+| gone | comes back how |
+|---|---|
+| RDS and everything in it | restore the snapshot (below), or re-index from git |
+| Cognito pool and its users | `enable_cognito = true` recreates the pool; users are recreated per Step 5c |
+| CloudFront distributions, ALB, IAM user, WAF | recreated with **new identifiers** -- see "on return" |
+| SSM parameters | rewritten from tfvars on apply |
+| ECR images | CD pushes a new one on the first deploy |
+
+| **not gone** | why |
+|---|---|
+| Terraform state bucket | separate bootstrap module, `prevent_destroy`; costs ~$0 |
+| Manual RDS snapshots | not managed by Terraform; delete by hand when no longer wanted |
+| GitHub secrets and variables | still set, and **now stale** -- see below |
+
+### On return
+
+Every step in this runbook's Steps 1–5, in order, because every identifier
+changes on recreate:
+
+1. `terraform apply` -- ~15 min.
+2. **Step 2 again, completely.** The IAM access key, both CloudFront ids, the
+   UI bucket, and (with Cognito) the issuer and client id are all new. The
+   GitHub secrets and variables from last time point at resources that no
+   longer exist, and the failure mode is a CD run that authenticates against
+   a deleted user.
+3. Merge to `master` for the first deploy.
+4. Index the corpus (Step 4), or restore the snapshot:
+
+   ```bash
+   # Restore to a new instance, then make Terraform adopt it -- see
+   # "Disaster recovery" for the full sequence.
+   aws rds restore-db-instance-from-db-snapshot      --db-instance-identifier source-advisors-finance-rag-db-restored      --db-snapshot-identifier finance-rag-pause-YYYYMMDD ...
+   ```
+
+   Re-indexing is faster than restoring unless the audit trail matters.
+5. Recreate the Cognito user (Step 5c) and confirm the SNS email again.
+
+### Confirm nothing is still billing
+
+```bash
+aws s3api list-buckets --query "Buckets[?starts_with(Name,'source-advisors')].Name"
+aws cloudfront list-distributions --query "DistributionList.Items[].[Id,Enabled,Comment]" --output table
+aws rds describe-db-instances --query "DBInstances[].DBInstanceIdentifier"
+aws rds describe-db-snapshots --snapshot-type manual --query "DBSnapshots[].DBSnapshotIdentifier"
+```
+
+The state bucket and any manual snapshots are the expected survivors. A
+CloudFront distribution still `Enabled` fifteen minutes later means the
+destroy did not finish; run it again.
+
+---
+
 ## Tearing down
 
 ```bash
