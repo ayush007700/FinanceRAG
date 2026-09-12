@@ -1,12 +1,14 @@
-# syntax=docker/dockerfile:1
-
 # ---------------------------------------------------------------------------
 # Build stage. Compilers live here and nowhere else: psycopg, pillow and
 # pdfplumber pull C extensions, and build-essential is ~200 MB of toolchain that
 # has no business in a running container. Anything installed here reaches the
 # runtime stage only by being copied deliberately.
 # ---------------------------------------------------------------------------
-FROM python:3.14-slim AS builder
+# ECR Public mirrors Docker Hub's official images, byte for byte, without
+# Docker Hub's anonymous-pull rate limits or its auth round trip. A CD run
+# died on a reset connection to auth.docker.io; this is the same image
+# from a registry the runner does not have to negotiate a token with.
+FROM public.ecr.aws/docker/library/python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -42,7 +44,7 @@ RUN pip install --no-deps .
 # ---------------------------------------------------------------------------
 # Runtime stage.
 # ---------------------------------------------------------------------------
-FROM python:3.14-slim AS runtime
+FROM public.ecr.aws/docker/library/python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
