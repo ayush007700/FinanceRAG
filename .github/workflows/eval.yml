@@ -23,13 +23,10 @@ name: Eval
 on:
   pull_request:
     branches: [master]
-    # Docs and UI changes cannot move retrieval metrics; skipping them keeps
-    # the gate's cost proportional to what it can catch.
-    paths-ignore:
-      - "docs/**"
-      - "web/**"
-      - "**/*.md"
-      - ".github/dependabot.yml"
+    # No paths-ignore here, on purpose. A trigger-level filter stops the whole
+    # workflow, and a required check that never starts leaves the PR waiting
+    # for a status that will never come. The filter lives on the job instead:
+    # a skipped job reports "skipped", which the ruleset accepts.
   workflow_dispatch:
     inputs:
       save_baseline:
@@ -51,10 +48,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Docs and UI changes cannot move retrieval metrics; skipping them keeps the
+  # gate's cost proportional to what it can catch. Done here rather than with
+  # paths-ignore on the trigger so the required check still reports.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      retrieval: ${{ steps.filter.outputs.retrieval }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            retrieval:
+              - "src/**"
+              - "migrations/**"
+              - "data/corpus/**"
+              - "data/eval/**"
+              - "scripts/run_eval.py"
+              - "pyproject.toml"
+              - "requirements.lock"
+              - ".github/workflows/eval.yml"
+
   eval:
     name: Golden-set evaluation
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: changes
+    # always() so a manual or scheduled run is not blocked by `changes` being
+    # skipped; the second clause is what actually decides on a PR.
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.retrieval == 'true')
 
     services:
       postgres:
