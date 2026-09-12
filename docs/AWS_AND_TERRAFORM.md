@@ -196,14 +196,10 @@ bills per call should crash-loop rather than serve traffic it cannot attribute.
 - **Key rotation is a redeploy.** One SSM parameter, read at task start. ECS
   injects it when the container starts, so updating the parameter changes
   nothing until a new task replaces the running one.
-- **Tracing is configured but not collected.** OpenTelemetry is wired into the
-  lifespan and instruments FastAPI, but exports only when
-  `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and no collector is deployed. LangSmith
-  and Langfuse trace the agent; Prometheus counts requests; neither shows where
-  wall-clock time went inside one request.
-- **No WAF.** Worth adding before public exposure. Rate limiting is per
-  credential and in-process of the API; a WAF would add per-IP limiting in front
-  of it, which is the layer that stops unauthenticated floods reaching the ALB.
+- **Tracing, WAF and Multi-AZ are opt-in.** `enable_tracing`, `enable_waf`
+  and `db_multi_az` default off to keep the demo at its documented cost.
+  `terraform.tfvars.prod.example` turns them on with the reason beside each;
+  the runbook's *Going to production* section is the argument for each line.
 
 ---
 
