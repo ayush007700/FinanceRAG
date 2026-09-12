@@ -412,6 +412,7 @@ cd web && npm install && npm run dev     # local, against API on :8000
 
 |                                                              |                                                                                                                   |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)               | **Start here.** One map of the whole system, every path through it with the file that does each step, the ten-minute walkthrough, and every interview question by layer |
 | [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)           | Step-by-step deploy and teardown: tfvars, where every GitHub secret and variable comes from, indexing, gotchas    |
 | [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)             | Architecture, RRF, the six agents, memory, evaluation, guardrails — plus 32 war stories with real numbers         |
 | [`docs/AWS_AND_TERRAFORM.md`](docs/AWS_AND_TERRAFORM.md)     | Every service and why, the NAT cost trade, IAM identities, Terraform patterns, CI/CD bootstrap, UI hosting        |
