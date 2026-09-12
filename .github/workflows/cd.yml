@@ -24,7 +24,7 @@ jobs:
     name: Build → Migrate → Deploy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Uses IAM user access keys (OIDC was failing for this account)
       - name: Configure AWS credentials
@@ -167,7 +167,7 @@ jobs:
     # Independent of the API deploy: a static bundle cannot break the backend,
     # and blocking the UI on service stability adds minutes for no safety.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4.3.1
