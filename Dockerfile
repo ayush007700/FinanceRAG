@@ -8,7 +8,7 @@
 # Docker Hub's anonymous-pull rate limits or its auth round trip. A CD run
 # died on a reset connection to auth.docker.io; this is the same image
 # from a registry the runner does not have to negotiate a token with.
-FROM public.ecr.aws/docker/library/python:3.12-slim AS builder
+FROM public.ecr.aws/docker/library/python:3.15-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -44,7 +44,7 @@ RUN pip install --no-deps .
 # ---------------------------------------------------------------------------
 # Runtime stage.
 # ---------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim AS runtime
+FROM public.ecr.aws/docker/library/python:3.15-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
